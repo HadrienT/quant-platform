@@ -1,0 +1,24 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.placeholder
+*.pem
+*.key
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Local runtime state (compose volumes are named, but bind mounts may appear)
+/data/
+/spool/
+*.log
+
+# Editors
+.vscode/
+.idea/
