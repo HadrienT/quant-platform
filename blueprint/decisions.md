@@ -251,3 +251,48 @@ voir 2.
 
 **Écarté.** *Grafana Alloy* (second agent) ; *JMX exporter* (voir 1) ; *Promtail*
 (en fin de vie, remplacé par Alloy).
+
+---
+
+## ADR-013 — Qualité des données et alertes : décisions du lot 04
+
+**Décisions.**
+
+1. **`data-quality` est *at-least-once* sans magasin idempotent.** Ses agrégats sont des
+   compteurs en mémoire, remis à zéro au redémarrage (Prometheus gère les remises à zéro).
+   Après un plantage, le lot non commité est relu et peut être compté deux fois dans la
+   nouvelle incarnation : acceptable pour un signal de supervision, et c'est pourquoi rien
+   d'exact (piste d'audit, facturation) ne doit jamais en dépendre. Le test de plantage
+   affirme donc *aucune perte* (chaque événement traité au moins une fois, retard ramené à
+   0) et **rapporte** les relectures, au lieu d'affirmer « aucun doublon » comme pour le puits.
+2. **Étiquettes à ensembles fermés.** `kind` (énumération du producteur) et `status` des
+   inputs sont bornés ; une valeur inconnue devient `other` / `unknown` au lieu de créer une
+   série (principe 8). Toutes les séries sont **créées à 0 au démarrage** : un compteur qui
+   naît à 1 n'a pas d'échantillon antérieur, `increase()` renvoie alors 0 et l'alerte ne
+   partirait jamais pour le tout premier événement. **Même exigence côté producteur** pour
+   `qm_audit_dropped_total` (à exporter à 0 dès le démarrage de l'API).
+3. **Fenêtre d'alerte « repli » de 3 minutes** (12 scrapes de 15 s) : un événement ne peut
+   pas passer entre deux évaluations, et l'alerte se résout ≈ 4 minutes après le dernier repli.
+   Chaque seuil des sept règles est justifié dans `alerts/rules.yml`. Sept et non six : ajout
+   de « messages en DLQ » (tout message en DLQ est un producteur qui viole le contrat).
+4. **« Producteur muet » compare les deux chemins** : des pricings ont lieu (métrique OTLP
+   `qm_pricing_duration_seconds_count`) mais aucune valorisation n'arrive dans Kafka depuis
+   10 minutes. C'est exactement ce que la séparation des deux chemins (ADR-004) permet.
+5. **Le canal de notification n'est pas choisi** (décision du mainteneur : « pas maintenant »).
+   Le point de contact Grafana est un *webhook* dont l'URL vient de `ALERT_WEBHOOK_URL` ;
+   tant qu'elle est vide, les alertes passent en *firing* dans Grafana mais ne notifient
+   personne. `ntfy` (recommandé, auto-hébergé, notification native sur Windows) n'est pas
+   construit ; le choisir ne demandera qu'un service Compose et une URL dans `.env`.
+   La livraison du webhook est néanmoins **prouvée** par `scripts/alert_e2e.sh` avec un
+   récepteur local jetable.
+6. **Recréation des services quand une configuration change** (`scripts/config_hash.sh`).
+   Découvert par le test d'alerte : `docker compose up -d` ne recrée pas un conteneur dont
+   seul un fichier *monté* a changé, donc Prometheus continuait sans scruter `data-quality`.
+   Le hachage des fichiers de configuration de chaque service est écrit dans `.env` puis
+   posé en étiquette : un changement de configuration devient un changement de définition et
+   Compose recrée uniquement ce service ; configuration inchangée = rien ne bouge.
+   `deploy.sh` l'exécute ; en développement, `scripts/up.sh`.
+
+**Écarté.** *Rechargement à chaud de Prometheus* (`--web.enable-lifecycle`) : ne couvre ni
+Loki, ni Tempo, ni le Collector. *Compteurs persistés par `data-quality`* : de la complexité
+pour un signal qui n'a pas besoin d'être exact.

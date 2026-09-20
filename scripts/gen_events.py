@@ -33,6 +33,7 @@ def main() -> None:
     parser.add_argument("tag")
     parser.add_argument("--type", default="test.event")
     parser.add_argument("--occurred-at")
+    parser.add_argument("--payload", default="{}", help="JSON merged into the payload")
     args = parser.parse_args()
 
     occurred_at = args.occurred_at or (
@@ -52,7 +53,7 @@ def main() -> None:
                 "git_sha": "test",
                 "lib_build": "-",
             },
-            "payload": {"i": i, "tag": args.tag},
+            "payload": {"i": i, "tag": args.tag, **json.loads(args.payload)},
         }
         print(f"{args.tag}|{json.dumps(event, separators=(',', ':'))}")
 

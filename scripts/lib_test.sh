@@ -25,6 +25,20 @@ produce_events() {
     --producer-property acks=all >/dev/null
 }
 
+# produce_file TOPIC FILE — a file of `key|json` lines onto any topic
+produce_file() {
+  docker compose exec -T kafka env KAFKA_HEAP_OPTS="-Xmx64m -Xms32m" \
+    /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 \
+    --topic "$1" --property parse.key=true --property 'key.separator=|' \
+    --producer-property acks=all <"$2" >/dev/null
+}
+
+# group_lag GROUP [TOPIC] — total unread messages of a consumer group (0 when caught up)
+group_lag() {
+  kafka_tool kafka-consumer-groups.sh --describe --group "$1" 2>/dev/null |
+    awk -v topic="${2:-}" 'NR > 1 && $2 != "" && (topic == "" || $2 == topic) && $6 ~ /^[0-9]+$/ {s += $6} END {print s + 0}'
+}
+
 rows_for() { sql_admin -c "SELECT count(*) FROM audit.events WHERE username = '$1'"; }
 distinct_for() { sql_admin -c "SELECT count(DISTINCT event_id) FROM audit.events WHERE username = '$1'"; }
 

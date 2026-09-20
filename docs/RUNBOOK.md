@@ -205,7 +205,41 @@ donc c'est à toi de le faire :
 Ne jamais publier AKHQ (aucune authentification propre) ; pour le voir, utiliser le
 tunnel SSH ci-dessus.
 
-## 8. Vérifier la santé
+## 8. Qualité des données et alertes (lot 04)
+
+**`data-quality`** est un second groupe de consommateurs (`data-quality`), indépendant du
+puits (`audit-sink`) : chacun a ses propres offsets sur les mêmes topics, arrêter l'un ne
+touche pas l'autre. Il expose `/metrics` (scruté par Prometheus) : replis par `kind`,
+valorisations `clean`/`degraded` (au moins un input non `observed`), statut de chaque input,
+et l'instant du dernier événement par source (un producteur muet = cette valeur ne bouge plus).
+
+**Alertes** : `alerts/rules.yml` (7 règles, **chaque seuil justifié en commentaire**),
+`alerts/contact-points.yml`, `alerts/policies.yml`, chargées par Grafana au démarrage. Pour
+recalibrer un seuil : modifier le fichier, puis `scripts/up.sh` (dev) ou `scripts/deploy.sh`
+(prod) — jamais dans l'interface.
+
+**Canal de notification — pas encore choisi.** Les alertes passent en *firing* dans Grafana
+(*Alerting → Alert rules*) mais n'avertissent personne tant que `ALERT_WEBHOOK_URL` est vide.
+Quand tu auras choisi (ntfy auto-hébergé recommandé : notification native sur Windows et
+téléphone) : ajouter le service au compose, mettre l'URL dans `.env`, `scripts/deploy.sh`.
+Le point de contact est un webhook générique : ntfy, un pont Pushover ou un webhook de chat
+fonctionnent sans changer le code.
+
+**Changer une configuration** (`prometheus/`, `loki/`, `tempo/`, `otel/`, `grafana/`,
+`alerts/`, `akhq/`) : `deploy.sh` (ou `scripts/up.sh` en dev) hache ces fichiers et recrée
+**uniquement** les services dont la configuration a changé. Un simple `docker compose up -d`
+ne le ferait pas : Docker ne voit pas qu'un fichier monté a changé.
+
+**Tests** (pile lancée) : `scripts/dq_crash_test.sh`, `scripts/dq_independence_test.sh`,
+`scripts/alert_e2e.sh` (≈ 8 min : provoque un repli, attend *firing* puis *normal*, et vérifie
+que Grafana poste les notifications à un récepteur local jetable).
+
+**Mesure de fin de chantier** (avec `quant-modeling`) : `audit.v_fallbacks_daily` doit être
+**vide** sur une semaine de trafic normal, une fois les replis retirés des anciens endpoints
+(`vol_surface.py`, `local_vol_pricing.py`, `simulation.py`). Tant qu'elle ne l'est pas, le
+tableau de bord *Pricing* montre l'écart restant.
+
+## 9. Vérifier la santé
 
 ```bash
 ./scripts/make.sh                        # (dev) lint + validation + tests

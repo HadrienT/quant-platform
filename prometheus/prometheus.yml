@@ -26,3 +26,10 @@ scrape_configs:
     # A scrape that would create runaway series is dropped whole, not half-ingested.
     label_limit: 30
     sample_limit: 5000
+
+  # Data quality: fallbacks by kind, degraded valuations, last event per source.
+  - job_name: data-quality
+    static_configs:
+      - targets: [data-quality:9109]
+    label_limit: 30
+    sample_limit: 5000

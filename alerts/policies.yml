@@ -1,0 +1,11 @@
+# One route: everything goes to the `quant-platform` contact point, grouped by alert.
+# repeat_interval: a still-firing alert reminds every 4 hours, not every minute.
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: quant-platform
+    group_by: [alertname]
+    group_wait: 10s
+    group_interval: 1m
+    repeat_interval: 4h

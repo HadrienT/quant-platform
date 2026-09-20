@@ -1,0 +1,317 @@
+# Alert rules, as code (loaded by Grafana's provisioning at start-up; edited only here).
+#
+# EVERY threshold is justified in the comment above its rule: a number nobody can
+# explain is a number nobody dares to change. They are first estimates, to be
+# calibrated on real traffic; recalibrating is an edit of this file, not of the UI.
+#
+# Each rule: query (A) -> reduce to the last value (B) -> threshold (C).
+# noDataState says what "no data" means for THAT alert (silence, or a problem).
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: quant-platform
+    folder: Quant platform
+    interval: 30s
+    rules:
+
+      # Why this threshold: ANY data.fallback is the whole point of the audit work: a silent fallback to a live
+      # source or a default was how prices went wrong unnoticed. So the threshold is zero, with no `for`. The 3
+      # minute window is 12 scrapes of 15 s: long enough that one event can never fall between two evaluations,
+      # short enough that the alert clears about 4 minutes after the last fallback.
+      - uid: qp-live-fallback
+        title: Live fallback
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: 'sum(increase(qp_dq_fallbacks_total[3m]))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+              settings: {mode: replaceNN, replaceWithValue: 0}
+              datasource: {type: __expr__, uid: __expr__}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{evaluator: {type: gt, params: [0]}}]
+              datasource: {type: __expr__, uid: __expr__}
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: 'Data fallback detected'
+          description: '{{ $values.B }} fallback event(s) in the last 3 minutes. See audit.v_fallbacks_daily and the Pricing dashboard.'
+        labels:
+          severity: critical
+
+      # Why this threshold: 10 failures from ONE hashed IP within 5 minutes. A person mistypes a password 2-4 times;
+      # 10 in 5 minutes is automation (credential stuffing). Grouped by the HMAC of the IP, so the address itself is
+      # never needed. To be calibrated against real traffic once the API emits auth events; lower it if the API's
+      # rate limiter cuts in earlier.
+      - uid: qp-login-burst
+        title: Login failure burst
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: qm-audit
+            model:
+              refId: A
+              datasource: {type: grafana-postgresql-datasource, uid: qm-audit}
+              format: table
+              rawQuery: true
+              editorMode: code
+              rawSql: 'SELECT coalesce(max(c), 0) AS value FROM (SELECT count(*) AS c FROM audit.events WHERE type = ''auth.login_failed'' AND occurred_at > now() - interval ''5 minutes'' GROUP BY payload->>''ip_hash'') t'
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+              settings: {mode: replaceNN, replaceWithValue: 0}
+              datasource: {type: __expr__, uid: __expr__}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{evaluator: {type: gt, params: [10]}}]
+              datasource: {type: __expr__, uid: __expr__}
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: 'Burst of failed logins from a single source'
+          description: 'Up to {{ $values.B }} failed logins from one hashed IP in 5 minutes. See the Security dashboard.'
+        labels:
+          severity: warning
+
+      # Why this threshold: More than 5% of requests answered with a 5xx over 10 minutes, sustained 5 minutes. At
+      # this site's traffic a single failing request would be a large percentage, hence the `for: 5m` to ignore
+      # blips and the 10 minute rate to smooth them. No traffic gives no data, which is OK (not an outage of the
+      # API's error path).
+      - uid: qp-server-errors
+        title: Server errors (5xx)
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: 'sum(rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[10m])) / sum(rate(http_server_request_duration_seconds_count[10m]))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+              settings: {mode: replaceNN, replaceWithValue: 0}
+              datasource: {type: __expr__, uid: __expr__}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{evaluator: {type: gt, params: [0.05]}}]
+              datasource: {type: __expr__, uid: __expr__}
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: 'API server error ratio above 5%'
+          description: '5xx ratio is {{ printf "%.1f" (mul $values.B 100) }}% over 10 minutes. See the API dashboard and the error logs.'
+        labels:
+          severity: critical
+
+      # Why this threshold: The sink reads batches of 500 and the flow is a few events per second, so in normal
+      # operation the lag stays under one batch. 1000 = two full batches unread, sustained 5 minutes = the sink is
+      # stuck, down, or retrying against a database that is down (it never drops events, so the lag is the only
+      # visible symptom). No data is treated as a problem here: it means kafka-exporter or the broker is gone.
+      - uid: qp-sink-lag
+        title: Audit sink lag
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: 'sum(kafka_consumergroup_lag{consumergroup="audit-sink"})'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+              settings: {mode: replaceNN, replaceWithValue: 0}
+              datasource: {type: __expr__, uid: __expr__}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{evaluator: {type: gt, params: [1000]}}]
+              datasource: {type: __expr__, uid: __expr__}
+        noDataState: Alerting
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: 'audit-sink is falling behind'
+          description: 'Group audit-sink has {{ $values.B }} unread messages. Check the sink and qm-audit.'
+        labels:
+          severity: warning
+
+      # Why this threshold: qm_audit_dropped_total counts events the API had to abandon (queue full,
+      # unserialisable): a lost audit event must be visible. Threshold zero; 15 minute window because drops are rare
+      # and the alert should stay up long enough to be noticed. REQUIRES the API to export the counter at 0 from
+      # startup (a counter born at 1 has no earlier sample, so increase() reports 0).
+      - uid: qp-events-dropped
+        title: Audit events dropped by the API
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 1200, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: 'sum(increase(qm_audit_dropped_total[15m]))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+              settings: {mode: replaceNN, replaceWithValue: 0}
+              datasource: {type: __expr__, uid: __expr__}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{evaluator: {type: gt, params: [0]}}]
+              datasource: {type: __expr__, uid: __expr__}
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: 'The API dropped audit events'
+          description: '{{ $values.B }} audit event(s) dropped in the last 15 minutes.'
+        labels:
+          severity: critical
+
+      # Why this threshold: Pricings are happening (the OTLP metric moves) but no valuation event has reached Kafka
+      # for 10 minutes: the two paths disagree, so the audit producer is mute (broker unreachable AND spool failing,
+      # or a bug). Comparing metric path and event path is exactly what ADR-004 makes possible. `for: 5m` avoids
+      # flapping on a single slow minute. No data (no pricing, or data-quality restarted) is OK.
+      - uid: qp-silent-producer
+        title: Silent audit producer
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: '(sum(increase(qm_pricing_duration_seconds_count[10m])) > 0) and on() ((time() - max(qp_dq_last_event_timestamp_seconds{topic="qm.audit.valuation.v1"})) > 600)'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+              settings: {mode: replaceNN, replaceWithValue: 0}
+              datasource: {type: __expr__, uid: __expr__}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{evaluator: {type: gt, params: [0]}}]
+              datasource: {type: __expr__, uid: __expr__}
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: 'Pricings happen but no valuation event arrives'
+          description: 'Valuations are being priced but the audit trail has received none for over 10 minutes.'
+        labels:
+          severity: critical
+
+      # Why this threshold: Every message in qm.dlq.v1 is a producer violating the envelope contract (or a payload
+      # the database refused). It is never normal, so the threshold is zero. It is a warning, not critical: the
+      # message is kept in the DLQ, nothing is lost.
+      - uid: qp-dlq-messages
+        title: Messages sent to the DLQ
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 1200, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: 'sum(increase(qp_sink_events_total{result="rejected"}[15m]))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+              settings: {mode: replaceNN, replaceWithValue: 0}
+              datasource: {type: __expr__, uid: __expr__}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{evaluator: {type: gt, params: [0]}}]
+              datasource: {type: __expr__, uid: __expr__}
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: 'The audit sink dead-lettered messages'
+          description: '{{ $values.B }} message(s) rejected in 15 minutes. Inspect qm.dlq.v1 (headers dlq.error) in AKHQ.'
+        labels:
+          severity: warning

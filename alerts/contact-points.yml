@@ -1,0 +1,14 @@
+# Where notifications go. The URL comes from ALERT_WEBHOOK_URL (.env, never in git).
+# A webhook contact point works with any relay that accepts a POST (ntfy, Pushover
+# bridge, a chat webhook…): the channel is a deployment choice, not a code change.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: quant-platform
+    receivers:
+      - uid: qp-webhook
+        type: webhook
+        settings:
+          url: ${ALERT_WEBHOOK_URL}
+          httpMethod: POST

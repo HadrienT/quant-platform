@@ -104,6 +104,9 @@ services:
     image: tchiotludo/akhq:0.26.0
     container_name: akhq
     logging: *default-logging
+    labels:
+      # Changes when a mounted config file changes, so compose recreates the service (scripts/config_hash.sh).
+      qp.config-hash: ${QP_HASH_AKHQ:-}
     restart: unless-stopped
     mem_limit: 320m
     cpus: 1
@@ -239,6 +242,44 @@ services:
       retries: 5
       start_period: 15s
 
+  # ── WP 04 ── Data quality: a SECOND, independent consumer group ───────────────
+  # Reads the same topics as the audit sink without any coordination with it: each
+  # group has its own offsets, so stopping one never affects the other.
+  data-quality:
+    build:
+      context: .
+      dockerfile: data_quality/Dockerfile
+    image: quant-platform/data-quality:${COMMIT_SHA:-dev}
+    container_name: data-quality
+    logging: *default-logging
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.5
+    stop_grace_period: 30s
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+      DQ_BATCH_SIZE: ${DQ_BATCH_SIZE:-500}
+      DQ_DEBUG_DELAY_MS: ${DQ_DEBUG_DELAY_MS:-0}
+      DQ_LOG_EVENTS: ${DQ_LOG_EVENTS:-0}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      topics-init:
+        condition: service_completed_successfully
+    networks:
+      - default
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen("http://127.0.0.1:9109/metrics", timeout=3)
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
   # ── WP 03 ── Telemetry (the OTLP path; Kafka is not involved: ADR-004) ────────
   # The seam applications talk to. On `dataplatform` so the API reaches it as
   # otel-collector:4317. Runs as root ONLY to read Docker's json logs, mounted
@@ -247,6 +288,9 @@ services:
     image: otel/opentelemetry-collector-contrib:0.137.0
     container_name: otel-collector
     logging: *default-logging
+    labels:
+      # Changes when a mounted config file changes, so compose recreates the service (scripts/config_hash.sh).
+      qp.config-hash: ${QP_HASH_OTEL:-}
     restart: unless-stopped
     user: "0:0"
     mem_limit: 128m
@@ -272,6 +316,9 @@ services:
     image: prom/prometheus:v3.6.0
     container_name: prometheus
     logging: *default-logging
+    labels:
+      # Changes when a mounted config file changes, so compose recreates the service (scripts/config_hash.sh).
+      qp.config-hash: ${QP_HASH_PROMETHEUS:-}
     restart: unless-stopped
     mem_limit: 512m
     cpus: 1
@@ -300,6 +347,9 @@ services:
     image: grafana/loki:3.5.5
     container_name: loki
     logging: *default-logging
+    labels:
+      # Changes when a mounted config file changes, so compose recreates the service (scripts/config_hash.sh).
+      qp.config-hash: ${QP_HASH_LOKI:-}
     restart: unless-stopped
     mem_limit: 512m
     cpus: 1
@@ -324,6 +374,9 @@ services:
     image: grafana/tempo:2.8.2
     container_name: tempo
     logging: *default-logging
+    labels:
+      # Changes when a mounted config file changes, so compose recreates the service (scripts/config_hash.sh).
+      qp.config-hash: ${QP_HASH_TEMPO:-}
     restart: unless-stopped
     mem_limit: 384m
     cpus: 1
@@ -359,6 +412,9 @@ services:
     image: grafana/grafana:12.2.0
     container_name: grafana
     logging: *default-logging
+    labels:
+      # Changes when a mounted config file changes, so compose recreates the service (scripts/config_hash.sh).
+      qp.config-hash: ${QP_HASH_GRAFANA:-}
     restart: unless-stopped
     mem_limit: 256m
     cpus: 1
@@ -371,11 +427,17 @@ services:
       GOMEMLIMIT: 200MiB
       # Read by the datasource provisioning file (never written in git).
       AUDIT_DB_READER_PASSWORD: ${AUDIT_DB_READER_PASSWORD:?}
+      # Where alert notifications go (contact point `quant-platform` in alerts/). Empty
+      # until a channel is chosen: alerts then fire in Grafana but notify nobody.
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-http://alert-channel-not-configured.invalid/}
     ports:
       - "127.0.0.1:${QP_GRAFANA_PORT:-3100}:3000"
     volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      # One mount per provisioning kind: a mount inside a read-only mount cannot be created.
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./alerts:/etc/grafana/provisioning/alerting:ro
       - grafana-data:/var/lib/grafana
     depends_on:
       prometheus:

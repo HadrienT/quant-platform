@@ -48,6 +48,9 @@ else
   printf '\nCOMMIT_SHA=%s\n' "${COMMIT_SHA}" >>.env
 fi
 
+# Hash the mounted config files into .env: a changed config recreates its service.
+./scripts/config_hash.sh
+
 docker compose build
 # --wait: return only once every service with a healthcheck is healthy and every
 # one-shot job (topic creation, migrations) has completed successfully.
