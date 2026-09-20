@@ -114,4 +114,21 @@ expect "v_login_failures_by_hash groups by hashed IP" "$(admin -c "SELECT string
 expect "v_slowest_valuations orders by duration and skips garbage" "$(admin -c "SELECT string_agg(product || ':' || duration_ms, ',' ORDER BY duration_ms DESC) FROM audit.v_slowest_valuations")" "autocall:412,vanilla:5,vanilla:3"
 expect "v_valuations_by_status: default/proxied = unobserved" "$(admin -c "SELECT string_agg(status || '=' || valuations, ',' ORDER BY status) FROM audit.v_valuations_by_status")" "observed=1,stale=1,unobserved=2"
 
+echo "7. Hash chain: intact, then tampering is detected (0005)"
+ins() { # ins OFFSET [PAYLOAD_JSON] — one event of partition (chain-test, 0), inserted as the WRITER would
+  local payload="${2-}"
+  [[ -n "$payload" ]] || payload="{\"n\":$1}"
+  docker exec -i -e PGPASSWORD=w "$DB" psql -h 127.0.0.1 -U audit_writer -d qm_audit -X -q -v ON_ERROR_STOP=1 -c "INSERT INTO audit.events (event_id, type, version, occurred_at, producer, payload, src_topic, src_part, src_offset) VALUES ('00000000-0000-7000-8000-00000000000$1', 'test.chain', 1, '2026-09-01 10:00:0$1+00', '{}', '$payload', 'chain-test', 0, $1) ON CONFLICT DO NOTHING"
+}
+verify() { docker exec -i -e PGPASSWORD=r "$DB" psql -h 127.0.0.1 -U audit_reader -d qm_audit -X -At -F '|' -c "SELECT src_part, rows_checked, coalesce(broken_at::text, 'ok'), coalesce(reason, '') FROM audit.verify_chain('chain-test')"; }
+for i in 0 1 2 3 4; do ins "$i"; done
+expect "5 rows chained; the writer needed only INSERT" "$(verify)" "0|5|ok|"
+ins 2 '{"n":"a re-delivered duplicate"}'
+expect "a re-delivered event leaves the chain untouched" "$(verify)" "0|5|ok|"
+part="$(admin -c "SELECT tableoid::regclass FROM audit.events WHERE src_topic = 'chain-test' AND src_offset = 2")"
+admin -c "ALTER TABLE $part DISABLE TRIGGER events_append_only; UPDATE $part SET payload = '{\"n\":\"tampered\"}' WHERE src_topic = 'chain-test' AND src_offset = 2; ALTER TABLE $part ENABLE TRIGGER events_append_only" >/dev/null
+expect "an altered row is found at its offset" "$(verify)" "0|5|2|row content was altered"
+admin -c "ALTER TABLE $part DISABLE TRIGGER events_append_only; UPDATE $part SET payload = '{\"n\":2}' WHERE src_topic = 'chain-test' AND src_offset = 2; DELETE FROM $part WHERE src_topic = 'chain-test' AND src_offset = 3; ALTER TABLE $part ENABLE TRIGGER events_append_only" >/dev/null
+expect "a row removed from the middle is found at the next offset" "$(verify)" "0|4|4|a row before this one was removed or altered"
+
 finish

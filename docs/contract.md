@@ -100,6 +100,10 @@ CREATE TABLE audit.events (
 ) PARTITION BY RANGE (occurred_at);
 ```
 
+Deux colonnes s'y ajoutent depuis la migration `0005` — `chain_prev bytea` et `chain_hash bytea`,
+remplies par un déclencheur, `NULL` pour les lignes antérieures (ADR-015). Le sink ne les écrit pas
+ni ne les lit : le contrat producteur ↔ plateforme n'en est pas modifié.
+
 Partitions **mensuelles**. La rétention légale consiste à détacher puis
 supprimer une partition entière — jamais un `DELETE` ligne à ligne.
 

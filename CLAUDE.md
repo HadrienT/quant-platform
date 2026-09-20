@@ -106,6 +106,7 @@ Ne créer un dossier que quand un lot le remplit.
 | `scripts/deploy.sh` — **depuis `~/quant-platform-prod` uniquement** | 00 |
 | `scripts/smoke.sh` — produit, relit, compare ; puis Kafka → sink → Postgres | 01, 02 |
 | `scripts/crash_test.sh`, `test_privileges.sh`, `audit_e2e.sh`, `test_migrations.sh` — critères du lot 02 | 02 |
+| `python3 scripts/verify_chain.py` — vérifie la chaîne de hachage de l'audit | 02 |
 | `scripts/telemetry_e2e.sh`, `check_labels.sh`, `check_dashboards.py`, `measure_memory.sh` | 03 |
 | `scripts/dq_crash_test.sh`, `dq_independence_test.sh`, `alert_e2e.sh` | 04 |
 | `.venv/bin/python scripts/registry_test.py` | 05 |

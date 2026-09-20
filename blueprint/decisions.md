@@ -335,3 +335,40 @@ pour un signal qui n'a pas besoin d'être exact.
 **Écarté.** *Confluent Schema Registry* (licence communautaire, ADR-010) ; *registre sur
 Postgres* (un second rôle, une seconde base à sauvegarder) ; *Avro seulement pour le payload*
 (deux schémas par message, enveloppe non versionnée).
+
+---
+
+## ADR-015 — Chaîne de hachage de la piste d'audit (lot 02, tâche optionnelle)
+
+**Décision.** Chaque ligne de `audit.events` porte `chain_prev` et
+`chain_hash = sha256(chain_prev ‖ contenu)`, où `chain_prev` est le `chain_hash` de la ligne
+précédente **de la même partition Kafka** (`src_topic`, `src_part`, par `src_offset`). Une
+ligne modifiée, retirée ou réordonnée au milieu casse la chaîne à partir de ce point ;
+`audit.verify_chain()` (et `scripts/verify_chain.py`) dit où. Migration `0005_hash_chain.sql`.
+
+**Où : dans la base (déclencheur `BEFORE INSERT`), pas dans le sink.** Le sink reste inchangé et
+sans état, ce qui préserve ce que le test de plantage a démontré. Un événement relu après un
+plantage est ignoré par `ON CONFLICT DO NOTHING` *sans avoir avancé la chaîne* — vérifié : le test
+de plantage (kill -9 au milieu de 1 000 événements, 20 relus) laisse 1 000 lignes chaînées
+intactes. Une reconstruction complète depuis Kafka reproduit une chaîne intacte (17 130 lignes,
+0 rupture). Le déclencheur est `SECURITY DEFINER` (le writer n'a que `INSERT` mais le
+déclencheur doit lire la ligne précédente) ; `audit.verify_chain` l'est aussi, pour que
+`audit_reader` puisse l'appeler sans droit sur la fonction de hachage.
+
+**Ce que ça prouve, et ce que ça ne prouve pas.** Cohérence, pas complétude :
+- détecté : contenu d'une ligne modifié ; ligne retirée ou réordonnée **au milieu** ;
+- **non détecté** : lignes retirées à la **fin** d'une partition (rien ne les référence) ;
+- **hors périmètre** : la rétention détache les plus anciennes partitions mensuelles — la
+  vérification fait confiance au `chain_prev` enregistré de la première ligne restante ;
+- un superuser qui recalcule toute la chaîne après une modification la refait cohérente : la
+  chaîne se protège de l'oubli et de l'erreur, pas d'un administrateur qui la falsifie
+  délibérément (il faudrait ancrer périodiquement le dernier hachage hors de la base).
+Les lignes antérieures à la migration gardent `NULL` et sont ignorées.
+
+**Coût.** Une recherche d'index par ligne insérée (`events_chain_lookup_idx`) et 64 octets de
+plus par ligne. **Le débit du sink n'a pas été remesuré** avec le déclencheur (mesure de
+l'exercice 5 : ≈ 5 500 événements/s sans) ; à quelques événements par seconde c'est sans effet.
+
+**Écarté.** *Chaîne calculée dans le sink* : état en mémoire à recharger à chaque affectation de
+partition, redélivrances à neutraliser, et le sink devrait pouvoir lire la table (droit `SELECT`
+que le contrat lui refuse). *Table de tête de chaîne mise à jour* : exigerait un `UPDATE`.

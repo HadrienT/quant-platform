@@ -121,6 +121,12 @@ d'un mois lointain (horloge du producteur déréglée) en est la cause. La répa
 ces lignes) est une intervention **manuelle et relue**, pas un `DELETE` : l'événement reste
 valable, seule sa partition change.
 
+**Intégrité (chaîne de hachage).** `python3 scripts/verify_chain.py [topic]` recalcule la chaîne de
+chaque partition Kafka et signale le premier offset rompu (code de sortie 1 si une rupture existe).
+À lancer après toute intervention manuelle sur la base, et périodiquement. Elle prouve la
+**cohérence** (une ligne modifiée ou retirée au milieu est vue), pas la **complétude** (des lignes
+retirées à la toute fin ne le sont pas) : voir ADR-015.
+
 **Mots de passe.** Ils sont posés à la **première** création du volume. Changer `.env`
 ensuite ne change pas les rôles : `docker compose exec qm-audit psql -U qm_admin -d qm_audit -c
 "ALTER ROLE audit_writer PASSWORD '…'"`, puis redémarrer le service concerné.
