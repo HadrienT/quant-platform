@@ -52,9 +52,10 @@ fi
 ./scripts/config_hash.sh
 
 docker compose build
-# --wait: return only once every service with a healthcheck is healthy and every
-# one-shot job (topic creation, migrations) has completed successfully.
-if ! docker compose up -d --remove-orphans --wait --wait-timeout 300; then
+docker compose up -d --remove-orphans
+# Explicit health gate rather than `up --wait`: that flag reports a finished one-shot job
+# (exit 0) as a failure. See scripts/wait_healthy.py.
+if ! python3 scripts/wait_healthy.py 300; then
   echo "✗ platform did not become healthy — last logs:" >&2
   docker compose ps -a >&2
   docker compose logs --tail 30 >&2
