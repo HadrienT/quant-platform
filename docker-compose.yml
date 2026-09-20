@@ -113,8 +113,119 @@ services:
       retries: 10
       start_period: 30s
 
+  # ── WP 02 ── Audit database (append-only) ────────────────────────────────────
+  # Distinct from data-ingest's Postgres (ADR-003). Reachable on `dataplatform`
+  # (the API's replay endpoint reads it as audit_reader) and on 127.0.0.1 for debugging.
+  qm-audit:
+    image: postgres:17.6
+    container_name: qm-audit
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1
+    shm_size: 64m
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - effective_cache_size=256MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - max_connections=40
+    environment:
+      POSTGRES_USER: qm_admin
+      POSTGRES_PASSWORD: ${AUDIT_DB_ADMIN_PASSWORD:?run scripts/init_env.sh}
+      POSTGRES_DB: qm_audit
+      AUDIT_DB_OWNER_PASSWORD: ${AUDIT_DB_OWNER_PASSWORD:?}
+      AUDIT_DB_WRITER_PASSWORD: ${AUDIT_DB_WRITER_PASSWORD:?}
+      AUDIT_DB_READER_PASSWORD: ${AUDIT_DB_READER_PASSWORD:?}
+    ports:
+      - "127.0.0.1:${QP_AUDIT_DB_PORT:-5434}:5432"
+    volumes:
+      - qm-audit-data:/var/lib/postgresql/data
+      - ./qm-audit/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - default
+      - dataplatform
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qm_admin -d qm_audit"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  # One-shot: applies migrations/*.sql (recorded with a checksum) and creates the
+  # monthly partitions. `docker compose run --rm audit-migrate maintain` also drops
+  # the partitions past retention (the systemd maintenance timer does this).
+  audit-migrate:
+    image: postgres:17.6
+    container_name: qp-audit-migrate
+    restart: "no"
+    mem_limit: 128m
+    cpus: 0.5
+    entrypoint: ["/bin/bash", "/opt/migrate/migrate.sh"]
+    environment:
+      PGHOST: qm-audit
+      PGDATABASE: qm_audit
+      PGUSER: audit_owner
+      PGPASSWORD: ${AUDIT_DB_OWNER_PASSWORD:?}
+      RETENTION_MONTHS: ${AUDIT_RETENTION_MONTHS:-12}
+      DRY_RUN: ${AUDIT_DRY_RUN:-0}
+    volumes:
+      - ./scripts/migrate.sh:/opt/migrate/migrate.sh:ro
+      - ./migrations:/opt/migrate/migrations:ro
+    depends_on:
+      qm-audit:
+        condition: service_healthy
+    networks:
+      - default
+
+  # The only writer of the audit database (audit_writer: INSERT only). Consumes the
+  # audit topics in group `audit-sink`; commits offsets AFTER the database commit.
+  audit-sink:
+    build:
+      context: .
+      dockerfile: sink/Dockerfile
+    image: quant-platform/audit-sink:${COMMIT_SHA:-dev}
+    container_name: audit-sink
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.5
+    # SIGTERM: finish the batch, commit, leave the group cleanly.
+    stop_grace_period: 30s
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+      PGHOST: qm-audit
+      PGDATABASE: qm_audit
+      PGUSER: audit_writer
+      PGPASSWORD: ${AUDIT_DB_WRITER_PASSWORD:?}
+      SINK_BATCH_SIZE: ${SINK_BATCH_SIZE:-500}
+      SINK_DEBUG_DELAY_MS: ${SINK_DEBUG_DELAY_MS:-0}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      topics-init:
+        condition: service_completed_successfully
+      audit-migrate:
+        condition: service_completed_successfully
+    networks:
+      - default
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen("http://127.0.0.1:9108/metrics", timeout=3)
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
 volumes:
   kafka-data:
+  qm-audit-data:
 
 networks:
   dataplatform:

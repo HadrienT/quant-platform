@@ -153,3 +153,60 @@ Apache 2.0). Console : **AKHQ** (Apache 2.0).
 
 **Écarté.** *Confluent Platform* (licence communautaire, plus lourd) ; *Redpanda
 Console* (BSL) ; *Kafka UI* (moins suivi).
+
+---
+
+## ADR-011 — Base d'audit : décisions d'implémentation du lot 02
+
+**Décisions.**
+
+1. **`ON CONFLICT DO NOTHING` sans cible.** Le contrat (§4) disait
+   `ON CONFLICT (event_id, occurred_at) DO NOTHING`. Mesuré sur Postgres 17 : la
+   forme *avec cible* exige en plus le privilège `SELECT` (pour inférer l'index),
+   ce qui violerait « `audit_writer` : `INSERT` seulement ». Sans cible, `INSERT`
+   suffit, et comme la clé primaire est la seule contrainte d'unicité, l'effet est
+   identique. Le contrat §4 est mis à jour.
+2. **Superuser d'amorçage `qm_admin`, distinct des trois rôles du contrat.**
+   L'image Postgres exige un superuser au premier démarrage ; s'il s'appelait
+   `audit_owner`, le rôle « migrations uniquement » contournerait tous les
+   privilèges. `qm_admin` n'est joignable que par la socket locale du conteneur
+   (`pg_hba` le rejette en TCP) ; les trois rôles du contrat ne sont **pas**
+   superuser. Coût : un secret de plus (`AUDIT_DB_ADMIN_PASSWORD`).
+3. **Déclencheur d'immuabilité.** En plus de l'absence de privilège, un déclencheur
+   `BEFORE UPDATE OR DELETE` refuse la modification **même au propriétaire et à un
+   superuser** (« même juste une fois » est interdit par `CLAUDE.md`). `TRUNCATE`
+   n'est volontairement pas bloqué : c'est ce qui permet l'exercice de
+   reconstruction depuis Kafka. Détacher/supprimer une partition n'est pas non plus
+   bloqué : c'est la rétention.
+4. **Partitions passées créées à l'avance** (`ensure_partitions(3, 3)`). Postgres
+   refuse de créer une partition dont la plage contient déjà des lignes de la
+   partition `DEFAULT` ; or une reconstruction depuis Kafka (jusqu'à 90 jours)
+   réinjecte des événements des mois passés. Sans leurs partitions, ils
+   atterriraient dans `DEFAULT` et bloqueraient leur création. Si le cas se produit
+   malgré tout, la maintenance **avertit** (elle n'échoue pas) et
+   `v_default_partition_events` montre les événements concernés.
+5. **Rétention unique de 12 mois — écart assumé avec le lot 02.** Le lot demande
+   12 mois pour les valorisations **et** 90 jours pour `http.access`. Or la
+   rétention se fait par **partition mensuelle**, qui mélange tous les types : on
+   ne peut pas retirer les `http.access` d'un mois sans `DELETE` ligne à ligne
+   (interdit). Deux issues, **à trancher par le mainteneur** : (a) garder le
+   compromis actuel (tout 12 mois ; `http.access` est peu volumineux ici, et Kafka
+   ne le garde que 14 jours) ; (b) une table séparée `audit.http_access`, partitionnée
+   elle aussi, avec sa propre rétention — c'est une modification du contrat (§3).
+6. **Champs de payload lus par les vues et le contrôle qualité — hypothèses à
+   confirmer par `quant-modeling`** (les payloads appartiennent au producteur, et son
+   lot 18a n'est pas livré) :
+
+   | Événement | Champs lus |
+   |---|---|
+   | `data.fallback` | `payload.kind` |
+   | `pricing.valuation` | `payload.product`, `payload.engine.name`, `payload.model.name`, `payload.timing.duration_ms`, `payload.market_inputs[].status` (`observed`/`stale`/`proxied`/`default`) |
+   | `auth.login_failed`, `auth.rate_limited` | `payload.ip_hash` (HMAC-SHA256 de l'IP) |
+   | `http.access` | `payload.route`, `payload.status` |
+
+   Un champ absent ne casse rien (les vues renvoient `NULL` ou ignorent la ligne),
+   mais l'écart doit être levé par une issue croisée dans `quant-modeling`.
+
+**Écarté.** *Créer les partitions à la demande depuis le sink* : donnerait le droit
+de DDL à `audit_writer`, ce qui ruine l'INSERT seul. *Superuser = `audit_owner`* :
+voir 2.

@@ -1,5 +1,8 @@
-# Developer tooling used by scripts/make.sh and the CI. Freeze with:
+# Developer tooling used by scripts/make.sh and the CI, plus the runtime
+# dependencies of the services so their unit tests run locally. Freeze with:
 #   pip-compile requirements-dev.in
+-r sink/requirements.in
+-r data_quality/requirements.in
 black
 pip-tools
 pytest

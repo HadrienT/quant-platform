@@ -1,0 +1,23 @@
+# One-shot backup of the audit database. Driven by quant-platform-backup.timer.
+#
+# Install (root, once):
+#   sudo cp deploy/quant-platform-backup.service deploy/quant-platform-backup.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now quant-platform-backup.timer
+#
+# Writes to ~/backups/quant-platform by default. Point it OFF the machine (mounted
+# NAS/USB/rclone target) with:
+#   echo 'BACKUP_DEST=/mnt/nas/quant-platform' | sudo tee /etc/quant-platform-backup.conf
+
+[Unit]
+Description=quant-platform audit database backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=hadriensuper
+SupplementaryGroups=docker
+EnvironmentFile=-/etc/quant-platform-backup.conf
+WorkingDirectory=/home/hadriensuper/quant-platform-prod
+ExecStart=/bin/bash scripts/backup_audit.sh

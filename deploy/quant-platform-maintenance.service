@@ -1,0 +1,22 @@
+# One-shot audit partition maintenance: creates the coming months' partitions and
+# detaches then drops those past retention (whole partitions, never row by row).
+# Driven by quant-platform-maintenance.timer.
+#
+# Install (root, once):
+#   sudo cp deploy/quant-platform-maintenance.service deploy/quant-platform-maintenance.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now quant-platform-maintenance.timer
+#
+# Preview what retention would drop, without dropping:  AUDIT_DRY_RUN=1 docker compose run --rm audit-migrate maintain
+
+[Unit]
+Description=quant-platform audit partition maintenance
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=hadriensuper
+SupplementaryGroups=docker
+WorkingDirectory=/home/hadriensuper/quant-platform-prod
+ExecStart=/usr/bin/docker compose run --rm audit-migrate maintain

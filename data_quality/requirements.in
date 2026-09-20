@@ -1,0 +1,4 @@
+# Runtime dependencies of data-quality (WP 04). Freeze with:  pip-compile data_quality/requirements.in
+confluent-kafka
+jsonschema
+prometheus-client

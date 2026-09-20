@@ -7,7 +7,8 @@ dans chacun des dépôts concernés. Le producteur actuel est `quant-modeling`
 `blueprint/wp/18-observability.md`.
 
 Le contrat tient en trois choses : **l'enveloppe**, les **topics**, et les
-**rôles de base de données**. Les **payloads** appartiennent au producteur.
+**rôles de base de données**. Les **payloads** appartiennent au producteur ; l'enveloppe a un JSON Schema
+exécutable : [`common/qp_common/envelope.schema.json`](../common/qp_common/envelope.schema.json).
 
 ## 1. Enveloppe (commune à tous les événements)
 
@@ -111,7 +112,9 @@ supprimer une partition entière — jamais un `DELETE` ligne à ligne.
   jamais la requête.
 - **Consommateur** : *at-least-once*, `enable.auto.commit=false`, commit des
   offsets **après** le commit de la base ; insertion idempotente
-  (`ON CONFLICT (event_id, occurred_at) DO NOTHING`).
+  (`ON CONFLICT DO NOTHING`, sans cible : la clé primaire `(event_id, occurred_at)`
+  est la seule contrainte d'unicité, et la forme avec cible exigerait `SELECT` en
+  plus de `INSERT` — ADR-011).
 - **Perte bornée assumée côté producteur** : un plantage de l'API entre la fin
   d'une requête et l'acquittement (au plus `linger.ms`) peut perdre des
   événements (ADR-006).

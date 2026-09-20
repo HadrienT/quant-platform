@@ -1,0 +1,11 @@
+# The build context of the Python services is the repository root: keep secrets,
+# history and tooling out of every image.
+.git
+.venv
+.env
+.env.*
+!.env.placeholder
+**/__pycache__
+.pytest_cache
+blueprint
+docs

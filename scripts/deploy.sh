@@ -14,6 +14,10 @@ if [[ ! -f .env ]]; then
   exit 1
 fi
 
+# A newer lot may need variables this .env does not have yet: add them (never
+# touching existing values), so the deploy does not fail on a missing secret.
+./scripts/init_env.sh --sync
+
 # Fast-forward to the remote when there is one and it is reachable. Non-fatal:
 # at boot the network may not be up yet, and a stale checkout still deploys a
 # working (older) platform.

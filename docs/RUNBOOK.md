@@ -74,11 +74,60 @@ L'unité impose l'**ordre** : la plateforme démarre **avant** l'API
 plateforme échoue ou traîne (au plus 5 minutes), l'API démarre quand même et
 utilise son spool local. Rien ici ne doit devenir un point de défaillance du site.
 
-## 5. Sauvegarde et restauration
+## 5. Base d'audit : sauvegarde, restauration, partitions (lot 02)
 
-*Point d'attache — livré au lot 02 :* un timer systemd (`pg_dump` de la base
-d'audit) sur le modèle de `quant-modeling-backup.timer`. Cette section sera
-complétée avec la procédure de restauration testée.
+**Sauvegarde.** `scripts/backup_audit.sh [DEST]` fait un `pg_dump` (format custom)
+vers `~/backups/quant-platform` (ou `$BACKUP_DEST`), vérifie que le fichier est
+lisible avant d'élaguer, et garde les 14 derniers. Le timer systemd
+`deploy/quant-platform-backup.timer` le lance chaque nuit à 03:15 (installation :
+en-tête de `deploy/quant-platform-backup.service`). **Mettre `BACKUP_DEST` hors de la
+machine** (NAS, disque USB, cible rclone) : une sauvegarde sur le même disque ne
+protège pas d'une perte de disque.
+
+**Vérifier une sauvegarde** (la seule preuve qu'elle sert) :
+
+```bash
+scripts/restore_audit.sh ~/backups/quant-platform/audit-<date>.dump   # → base qm_audit_restore
+docker compose exec qm-audit psql -U qm_admin -d qm_audit_restore -c 'select count(*) from audit.events'
+docker compose exec qm-audit psql -U qm_admin -d postgres -c 'drop database qm_audit_restore'
+```
+
+Le script **refuse** de restaurer sur `qm_audit` (la base vivante).
+
+**Remplacer la base vivante après un sinistre** (procédure manuelle, à froid) :
+`docker compose stop audit-sink` → restaurer dans `qm_audit_restore` comme ci-dessus →
+`docker compose exec qm-audit psql -U qm_admin -d postgres -c 'ALTER DATABASE qm_audit
+RENAME TO qm_audit_old' -c 'ALTER DATABASE qm_audit_restore RENAME TO qm_audit'` →
+`docker compose up -d audit-sink`. Les événements postérieurs à la sauvegarde sont
+rejoués depuis Kafka si l'offset du groupe est resté en arrière (`kafka-consumer-groups
+--reset-offsets`, voir `scripts/audit_e2e.sh` scénario 5) et dans la limite de la
+rétention Kafka (90 jours) ; l'insertion étant idempotente, rejouer trop loin est sans danger.
+
+**Migrations.** `docker compose run --rm audit-migrate` applique `migrations/*.sql`
+dans l'ordre (à chaque `up`). Chaque fichier est enregistré avec son `sha256` ; **modifier
+une migration déjà appliquée est refusé** : ajouter un nouveau fichier.
+
+**Partitions.** `audit.events` est partitionnée par mois. La maintenance
+(`docker compose run --rm audit-migrate maintain`, timer
+`quant-platform-maintenance.timer` à 02:40) crée de 3 mois en arrière à 3 mois en avant, et
+**détache puis supprime** les partitions entièrement au-delà de `AUDIT_RETENTION_MONTHS`
+(12 par défaut). Aperçu sans rien supprimer : `AUDIT_DRY_RUN=1 docker compose run --rm
+audit-migrate maintain`. Limite connue : la rétention porte sur des mois entiers, tous types
+confondus (ADR-011 §5).
+
+Si un avertissement dit qu'une partition ne peut pas être créée parce que `DEFAULT` contient
+déjà ses événements : `SELECT * FROM audit.v_default_partition_events`. Un événement daté
+d'un mois lointain (horloge du producteur déréglée) en est la cause. La réparation (déplacer
+ces lignes) est une intervention **manuelle et relue**, pas un `DELETE` : l'événement reste
+valable, seule sa partition change.
+
+**Mots de passe.** Ils sont posés à la **première** création du volume. Changer `.env`
+ensuite ne change pas les rôles : `docker compose exec qm-audit psql -U qm_admin -d qm_audit -c
+"ALTER ROLE audit_writer PASSWORD '…'"`, puis redémarrer le service concerné.
+
+**Tests d'acceptation** (pile de dev lancée ; les lignes de test restent, la table est
+append-only) : `scripts/crash_test.sh`, `scripts/test_privileges.sh`, `scripts/audit_e2e.sh`,
+`scripts/test_migrations.sh` (base jetable, n'altère pas la pile).
 
 ## 6. Kafka (lot 01)
 
