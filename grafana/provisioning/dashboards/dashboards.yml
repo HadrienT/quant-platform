@@ -1,0 +1,13 @@
+# Dashboards are JSON files in grafana/dashboards/, versioned. The UI cannot save
+# over them (allowUiUpdates: false): change the file, or export from the UI into it.
+apiVersion: 1
+
+providers:
+  - name: quant-platform
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

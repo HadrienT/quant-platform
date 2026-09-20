@@ -1,0 +1,28 @@
+# Prometheus. Application metrics arrive by remote write from the OTel Collector;
+# the platform's own components are scraped here. Retention (15 days) is a command
+# line flag of the compose service.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: [prometheus:9090]
+
+  - job_name: otel-collector
+    static_configs:
+      - targets: [otel-collector:8888]
+
+  # Lag per consumer group and throughput per topic (the "Kafka" dashboard).
+  - job_name: kafka-exporter
+    static_configs:
+      - targets: [kafka-exporter:9308]
+
+  # The consumers' own state: last committed batch, results, transient errors.
+  - job_name: audit-sink
+    static_configs:
+      - targets: [audit-sink:9108]
+    # A scrape that would create runaway series is dropped whole, not half-ingested.
+    label_limit: 30
+    sample_limit: 5000

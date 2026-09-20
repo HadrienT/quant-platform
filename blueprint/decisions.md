@@ -210,3 +210,44 @@ Console* (BSL) ; *Kafka UI* (moins suivi).
 **Écarté.** *Créer les partitions à la demande depuis le sink* : donnerait le droit
 de DDL à `audit_writer`, ce qui ruine l'INSERT seul. *Superuser = `audit_owner`* :
 voir 2.
+
+---
+
+## ADR-012 — Télémétrie : exporteur Kafka, agent de logs, noms de métriques
+
+**Décisions.**
+
+1. **`kafka-exporter` (danielqsj, Apache 2.0) plutôt que JMX.** Il lit le retard par
+   groupe et le débit par topic à travers l'API du broker : aucun agent JVM à ajouter
+   à Kafka (donc pas de mémoire ni de port JMX en plus dans le conteneur plafonné à
+   1 Go). JMX donnerait des métriques internes du broker (temps de requête, etc.) qui
+   n'ont pas d'intérêt à ce volume. Le lot 06 pourra en ajouter pour la grappe.
+2. **Un seul agent de logs : le Collector OTel (`filelog`), pas Grafana Alloy.** Le
+   Collector est déjà là pour OTLP ; Alloy aurait été un second agent pour le même
+   travail. Le nom du service vient du libellé Compose
+   `com.docker.compose.service`, copié dans chaque ligne par
+   `logging.options.labels` (ancre `x-logging` du compose). **Un projet qui rejoint la
+   plateforme (l'API de `quant-modeling`) met la même option** ; sans elle, ses lignes
+   arrivent sans `service_name`. Le Collector n'a pas accès à `docker.sock` : il lit en
+   lecture seule `/var/lib/docker/containers`, ce qui l'oblige à tourner en **root** (les
+   journaux Docker ne sont lisibles que par root) — compromis assumé, borné par le montage
+   en lecture seule et le plafond de 128 Mo.
+3. **Les logs entrent par OTLP dans Loki** (`otlphttp` vers `/otlp`), qui ne met en
+   index qu'un petit ensemble d'attributs de ressource (dont `service.name`) ; tout le
+   reste est de la *structured metadata*, donc jamais des étiquettes à forte
+   cardinalité. Un `trace_id` dans une ligne de log JSON devient un lien vers Tempo.
+4. **Garde-fou de cardinalité dans le Collector** : `request_id`, `username`, `ticker`,
+   `ip`, `ip_hash`… sont **supprimés** des points de métriques avant Prometheus, quoi
+   qu'envoie l'application. `scripts/check_labels.sh` vérifie Prometheus et Loki, et
+   `scripts/telemetry_e2e.sh` prouve la suppression avec une métrique de test.
+5. **Noms de métriques de l'API — hypothèse à confirmer par `quant-modeling`.** Le
+   contrat de métriques du lot 03 ne liste que les `qm_*`. Le tableau de bord *API*
+   suppose en plus les métriques HTTP de la convention sémantique OpenTelemetry stable :
+   `http_server_request_duration_seconds` avec `http_route` (route **normalisée**) et
+   `http_response_status_code`. Si l'auto-instrumentation FastAPI utilisée émet
+   d'autres noms, on ajuste le JSON du tableau de bord, pas l'API.
+6. **Rétentions** : Prometheus 15 j, Loki 30 j (l'IP en clair des logs d'accès y vit,
+   ADR-009), Tempo 72 h.
+
+**Écarté.** *Grafana Alloy* (second agent) ; *JMX exporter* (voir 1) ; *Promtail*
+(en fin de vie, remplacé par Alloy).

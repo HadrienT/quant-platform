@@ -77,22 +77,33 @@ là, `scripts/smoke.sh` produit des événements de test à la main.
 **Ordre conseillé** : 00 → 01 → 02 (on a alors la piste d'audit complète), puis
 03, puis 04. Les lots 05 et 06 sont de la profondeur, pas du chemin critique.
 
-## 5. Empreinte mémoire (estimation, à mesurer au lot 03)
+## 5. Empreinte mémoire (mesurée)
 
 Plafonds explicites : la RAM de la machine est partagée avec d'autres projets et
 avec les calculs lourds de `quant-modeling`.
 
-| Service | Plafond | | Service | Plafond |
-|---|---|---|---|---|
-| Kafka | 1 Go | | Prometheus | 512 Mo |
-| Apicurio Registry | 512 Mo | | Loki | 512 Mo |
-| AKHQ | 256 Mo | | Tempo | 384 Mo |
-| Postgres `qm-audit` | 512 Mo | | Grafana | 256 Mo |
-| `audit-sink`, `data-quality` | 128 Mo chacun | | OTel Collector | 128 Mo |
+Relevé par `scripts/measure_memory.sh 240` (`docker stats` toutes les 10 s pendant
+4 minutes, 400 événements toutes les 3 s dans Kafka → sink → Postgres, stack complète
+des lots 01–03, 2026-09-20) :
 
-≈ 4 Go de **plafonds cumulés**, pour un usage réel probablement autour de 2 Go.
-Ce sont des estimations : le lot 03 relève l'usage réel (`docker stats`) et
-ajuste, il ne les laisse pas à l'intuition.
+| Service | Plafond | Pic mesuré | | Service | Plafond | Pic mesuré |
+|---|---|---|---|---|---|---|
+| Kafka | 1 Go | 527 Mo (51 %) | | Prometheus | 512 Mo | 35 Mo |
+| AKHQ | 320 Mo *(256 estimés)* | 223 Mo (70 %) | | Loki | 512 Mo | 90 Mo |
+| Postgres `qm-audit` | 512 Mo | 38 Mo | | Tempo | 384 Mo | 40 Mo |
+| `audit-sink` | 128 Mo | 44 Mo | | Grafana | 256 Mo | 122 Mo (48 %) |
+| OTel Collector | 128 Mo | 86 Mo (67 %) | | `kafka-exporter` | 64 Mo | 15 Mo |
+
+**Pic cumulé mesuré : ≈ 1,2 Go** pour ≈ 3,8 Go de plafonds cumulés. Ce que ça dit :
+
+- Les plafonds tiennent avec marge ; seul AKHQ a dû être relevé (256 → 320 Mo, il
+  frôlait 90 %). Le Collector, à 67 %, est le suivant à surveiller quand l'API lui
+  enverra de vraies métriques et des logs.
+- **Limite de la mesure** : 4 minutes ne remplissent ni les index de Prometheus ni
+  ceux de Loki ; leur usage montera avec la rétention (15 j / 30 j). À **remesurer
+  après une semaine de trafic réel** ; les plafonds actuels leur laissent de la marge.
+- Apicurio (lot 05, plafond prévu 512 Mo) et `data-quality` (lot 04, 128 Mo) ne sont pas
+  encore dans ce relevé.
 
 ## 6. Règles qui s'appliquent à tous les lots
 

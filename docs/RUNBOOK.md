@@ -149,7 +149,63 @@ append-only) : `scripts/crash_test.sh`, `scripts/test_privileges.sh`, `scripts/a
 - Depuis l'hôte, un client Kafka se connecte sur `127.0.0.1:9094` (listener
   `EXTERNAL`) ; depuis un conteneur du réseau `dataplatform`, sur `kafka:9092`.
 
-## 7. Vérifier la santé
+## 7. Télémétrie et Grafana (lot 03)
+
+Deux chemins parallèles (ADR-004) : les événements d'audit vont dans Kafka, la
+télémétrie passe par le **Collector OTel** — l'API lui parle en OTLP sur
+`otel-collector:4317` (réseau `dataplatform`) et le Collector la répartit vers
+Prometheus (métriques), Loki (logs) et Tempo (traces). Les logs des conteneurs sont lus
+directement par le Collector.
+
+| Quoi | Où |
+|---|---|
+| Grafana | `http://127.0.0.1:3100` (utilisateur `admin`, mot de passe `GRAFANA_ADMIN_PASSWORD` du `.env`) ; depuis Windows : `ssh -L 3100:127.0.0.1:3100 <serveur>` |
+| Prometheus / Loki (debug) | `127.0.0.1:9091` / `127.0.0.1:3101` |
+| OTLP/HTTP du Collector (tests depuis l'hôte) | `127.0.0.1:4318` |
+| Tableaux de bord | dossier *Dashboards* : API, Pricing, Kafka, Sécurité — **définis dans `grafana/dashboards/*.json`** |
+
+**Rien ne se règle à la main dans Grafana.** Les sources de données et les tableaux de
+bord sont provisionnés depuis des fichiers et l'interface ne peut pas les écraser. Pour
+modifier un tableau de bord : le changer dans l'interface *pour essayer*, puis *Export →
+Save to file* et remplacer le JSON dans `grafana/dashboards/`, puis commiter. Un tableau
+de bord créé à la main et non rapatrié disparaît au prochain `down -v`.
+
+**Un projet qui rejoint la plateforme** (l'API) : rejoindre le réseau `dataplatform`,
+envoyer l'OTLP à `otel-collector:4317`, et mettre dans son compose
+`logging: {driver: json-file, options: {labels: com.docker.compose.service}}` pour que ses
+logs portent un `service_name`.
+
+**Règle de cardinalité.** Jamais un ticker, un utilisateur, un `request_id` ou une IP
+comme étiquette : le Collector les supprime des métriques, et
+`scripts/check_labels.sh` le vérifie. Ces valeurs vivent dans les événements d'audit et
+les traces.
+
+**Tests** (pile lancée) : `scripts/telemetry_e2e.sh` (OTLP → les trois backends,
+suppression des étiquettes interdites, retard du sink qui monte puis retombe),
+`scripts/check_labels.sh`, `python3 scripts/check_dashboards.py` (rejoue chaque requête
+des tableaux de bord). `scripts/measure_memory.sh` relève la mémoire réelle sous charge.
+
+### Exposer Grafana sur Internet (action manuelle — à faire seulement si tu le veux)
+
+**Rien n'est exposé tant que tu n'as pas fait ces étapes**, et Grafana reste lié à
+`127.0.0.1`. Le tunnel Cloudflare existant est géré dans le tableau de bord Cloudflare,
+donc c'est à toi de le faire :
+
+1. Cloudflare Zero Trust → *Networks → Tunnels* → ton tunnel → *Public Hostname* → **Add**.
+   Nom d'hôte : par exemple `grafana.tramonihadrien.com`. Service : `HTTP` et
+   `grafana:3000` **si le conteneur `cloudflared` est sur le réseau `dataplatform`** (il
+   faut alors aussi relier Grafana à ce réseau) ; sinon `http://host.docker.internal:3100`.
+2. **Avant de sauvegarder l'étape 1** : Zero Trust → *Access → Applications → Add an
+   application → Self-hosted*, même nom d'hôte, politique **Allow** limitée à ton adresse
+   e-mail. Sans cette application Access, Grafana serait exposé avec pour seule défense
+   son mot de passe.
+3. Vérifier depuis un navigateur en navigation privée : on doit tomber sur l'écran de
+   connexion Cloudflare Access, pas sur Grafana.
+
+Ne jamais publier AKHQ (aucune authentification propre) ; pour le voir, utiliser le
+tunnel SSH ci-dessus.
+
+## 8. Vérifier la santé
 
 ```bash
 ./scripts/make.sh                        # (dev) lint + validation + tests

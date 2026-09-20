@@ -9,6 +9,16 @@
 # Everything else stays on this project's private `default` network.
 name: quant-platform
 
+# Every container logs as JSON files rotated at 3 x 10 MB, and copies its compose
+# service name into each line: that is how the OTel collector labels logs in Loki
+# (WP 03). Other projects joining the platform set the same option.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+    labels: com.docker.compose.service
+
 x-topics-env: &kafka-tools-env
   # Kafka CLI tools default to a heap sized from the machine's RAM.
   KAFKA_HEAP_OPTS: -Xmx128m -Xms32m
@@ -18,6 +28,7 @@ services:
   kafka:
     image: apache/kafka:4.1.1
     container_name: kafka
+    logging: *default-logging
     restart: unless-stopped
     mem_limit: 1g
     cpus: 2
@@ -70,6 +81,7 @@ services:
   topics-init:
     image: apache/kafka:4.1.1
     container_name: qp-topics-init
+    logging: *default-logging
     restart: "no"
     mem_limit: 384m
     cpus: 1
@@ -91,6 +103,7 @@ services:
   akhq:
     image: tchiotludo/akhq:0.26.0
     container_name: akhq
+    logging: *default-logging
     restart: unless-stopped
     mem_limit: 320m
     cpus: 1
@@ -119,6 +132,7 @@ services:
   qm-audit:
     image: postgres:17.6
     container_name: qm-audit
+    logging: *default-logging
     restart: unless-stopped
     mem_limit: 512m
     cpus: 1
@@ -161,6 +175,7 @@ services:
   audit-migrate:
     image: postgres:17.6
     container_name: qp-audit-migrate
+    logging: *default-logging
     restart: "no"
     mem_limit: 128m
     cpus: 0.5
@@ -189,6 +204,7 @@ services:
       dockerfile: sink/Dockerfile
     image: quant-platform/audit-sink:${COMMIT_SHA:-dev}
     container_name: audit-sink
+    logging: *default-logging
     restart: unless-stopped
     mem_limit: 128m
     cpus: 0.5
@@ -223,9 +239,168 @@ services:
       retries: 5
       start_period: 15s
 
+  # ── WP 03 ── Telemetry (the OTLP path; Kafka is not involved: ADR-004) ────────
+  # The seam applications talk to. On `dataplatform` so the API reaches it as
+  # otel-collector:4317. Runs as root ONLY to read Docker's json logs, mounted
+  # read-only (no docker.sock is ever mounted).
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.137.0
+    container_name: otel-collector
+    logging: *default-logging
+    restart: unless-stopped
+    user: "0:0"
+    mem_limit: 128m
+    cpus: 0.5
+    command: ["--config=/etc/otelcol/collector.yml"]
+    environment:
+      GOMEMLIMIT: 100MiB
+    ports:
+      - "127.0.0.1:${QP_OTLP_HTTP_PORT:-4318}:4318"
+    volumes:
+      - ./otel/collector.yml:/etc/otelcol/collector.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - otel-state:/var/lib/otelcol
+    depends_on:
+      - loki
+      - tempo
+      - prometheus
+    networks:
+      - default
+      - dataplatform
+
+  prometheus:
+    image: prom/prometheus:v3.6.0
+    container_name: prometheus
+    logging: *default-logging
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-remote-write-receiver
+    environment:
+      GOMEMLIMIT: 400MiB
+    ports:
+      - "127.0.0.1:${QP_PROMETHEUS_PORT:-9091}:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  loki:
+    image: grafana/loki:3.5.5
+    container_name: loki
+    logging: *default-logging
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1
+    command: ["-config.file=/etc/loki/config.yml"]
+    environment:
+      GOMEMLIMIT: 400MiB
+    ports:
+      - "127.0.0.1:${QP_LOKI_PORT:-3101}:3100"
+    volumes:
+      - ./loki/config.yml:/etc/loki/config.yml:ro
+      - loki-data:/loki
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3100/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  tempo:
+    image: grafana/tempo:2.8.2
+    container_name: tempo
+    logging: *default-logging
+    restart: unless-stopped
+    mem_limit: 384m
+    cpus: 1
+    command: ["-config.file=/etc/tempo/config.yml"]
+    environment:
+      GOMEMLIMIT: 300MiB
+    volumes:
+      - ./tempo/config.yml:/etc/tempo/config.yml:ro
+      - tempo-data:/var/tempo
+    networks:
+      - default
+
+  # Consumer lag per group and throughput per topic, read from the broker's API
+  # (chosen over JMX: no JVM agent to add to the broker — ADR-012).
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.9.0
+    container_name: kafka-exporter
+    logging: *default-logging
+    restart: unless-stopped
+    mem_limit: 64m
+    cpus: 0.25
+    command:
+      - --kafka.server=kafka:9092
+      - --topic.filter=^qm\.
+      - --web.listen-address=:9308
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - default
+
+  grafana:
+    image: grafana/grafana:12.2.0
+    container_name: grafana
+    logging: *default-logging
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 1
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?run scripts/init_env.sh}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GOMEMLIMIT: 200MiB
+      # Read by the datasource provisioning file (never written in git).
+      AUDIT_DB_READER_PASSWORD: ${AUDIT_DB_READER_PASSWORD:?}
+    ports:
+      - "127.0.0.1:${QP_GRAFANA_PORT:-3100}:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+      qm-audit:
+        condition: service_healthy
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health | grep -q ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
 volumes:
   kafka-data:
   qm-audit-data:
+  otel-state:
+  prometheus-data:
+  loki-data:
+  tempo-data:
+  grafana-data:
 
 networks:
   dataplatform:

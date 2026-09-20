@@ -1,0 +1,117 @@
+# OpenTelemetry Collector — the seam between the applications and the backends
+# (ADR-004, ADR-012). Applications speak OTLP to this one address; changing a
+# backend (Prometheus, Loki, Tempo) is a change HERE, never in the application.
+#
+#   apps ──OTLP :4317/:4318──▶ collector ──▶ Prometheus (metrics, remote write)
+#   Docker json logs (filelog) ─┘            ├─▶ Loki       (logs, OTLP)
+#                                             └─▶ Tempo      (traces, OTLP)
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  # Remembers how far each log file was read: a restart neither re-sends nor skips.
+  file_storage:
+    directory: /var/lib/otelcol/file_storage
+    create_directory: true
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # Container logs, read straight from Docker's json-file logs (mounted read-only).
+  # The service name comes from the `com.docker.compose.service` label that the
+  # compose `logging.options.labels` setting copies into each line's `attrs`.
+  filelog/docker:
+    include: [/var/lib/docker/containers/*/*-json.log]
+    start_at: end
+    storage: file_storage
+    operators:
+      - type: json_parser
+        parse_from: body
+        timestamp:
+          parse_from: attributes.time
+          layout: "%Y-%m-%dT%H:%M:%S.%LZ"
+      - type: move
+        from: attributes.log
+        to: body
+      - type: move
+        from: attributes.stream
+        to: attributes["log.iostream"]
+      - type: move
+        from: attributes.attrs["com.docker.compose.service"]
+        to: resource["service.name"]
+        if: 'attributes.attrs != nil and attributes.attrs["com.docker.compose.service"] != nil'
+      - type: remove
+        field: attributes.time
+      - type: remove
+        field: attributes.attrs
+        if: 'attributes.attrs != nil'
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 96
+    spike_limit_mib: 24
+  batch:
+    timeout: 5s
+
+  # CARDINALITY GUARD (CLAUDE.md principle 8). Whatever an application sends, these
+  # keys never become Prometheus labels: a ticker, a user, a request_id or an IP as
+  # a label creates one time series per value and is the first cause of a dead
+  # Prometheus. Their place is the audit events and the traces.
+  transform/forbidden_metric_labels:
+    error_mode: ignore
+    metric_statements:
+      - context: datapoint
+        statements:
+          - delete_matching_keys(attributes, "^(request_id|trace_id|span_id|event_id|username|user|user_id|ticker|symbol|ip|client_ip|ip_hash|remote_addr)$")
+      - context: resource
+        statements:
+          - delete_matching_keys(attributes, "^(request_id|username|user|user_id|ticker|ip|client_ip|ip_hash)$")
+
+  # The collector's own container logs are not shipped: an outage of Loki would
+  # otherwise make the collector log about its own logging, in a loop.
+  filter/not_self:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'resource.attributes["service.name"] == "otel-collector"'
+
+exporters:
+  prometheusremotewrite:
+    endpoint: http://prometheus:9090/api/v1/write
+    resource_to_telemetry_conversion:
+      enabled: false
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+
+service:
+  extensions: [health_check, file_storage]
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/forbidden_metric_labels, batch]
+      exporters: [prometheusremotewrite]
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/tempo]
+    logs:
+      receivers: [otlp, filelog/docker]
+      processors: [memory_limiter, filter/not_self, batch]
+      exporters: [otlphttp/loki]

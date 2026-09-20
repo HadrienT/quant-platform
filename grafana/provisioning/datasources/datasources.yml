@@ -1,0 +1,57 @@
+# Data sources, as code. uid values are referenced by the dashboards: never rename.
+apiVersion: 1
+
+deleteDatasources:
+  - { name: Prometheus, orgId: 1 }
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 15s
+
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      # From a log line carrying "trace_id":"…" jump to the trace.
+      derivedFields:
+        - name: trace_id
+          matcherRegex: '"trace_id":\s*"(\w+)"'
+          url: "$${__value.raw}"
+          datasourceUid: tempo
+
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: loki
+        filterByTraceID: false
+        customQuery: true
+        query: '{service_name="$${__span.tags["service.name"]}"} |= "$${__trace.traceId}"'
+      serviceMap:
+        datasourceUid: prometheus
+
+  # The audit trail, read as audit_reader: SELECT only, by construction.
+  - name: qm-audit
+    uid: qm-audit
+    type: grafana-postgresql-datasource
+    access: proxy
+    url: qm-audit:5432
+    user: audit_reader
+    jsonData:
+      database: qm_audit
+      sslmode: disable
+      postgresVersion: 1700
+      timescaledb: false
+    secureJsonData:
+      password: ${AUDIT_DB_READER_PASSWORD}
