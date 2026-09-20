@@ -1,0 +1,7 @@
+# Developer tooling used by scripts/make.sh and the CI. Freeze with:
+#   pip-compile requirements-dev.in
+black
+pip-tools
+pytest
+shellcheck-py
+yamllint

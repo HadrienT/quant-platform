@@ -1,0 +1,35 @@
+# Brings the platform up on boot, BEFORE the quant-modeling API.
+#
+# Install (needs root — the maintainer does this once):
+#   sudo cp deploy/quant-platform.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now quant-platform.service
+#
+# Ordering, not dependency: `Before=` makes the API wait for this unit to finish
+# starting, but if the platform FAILS the API still starts (it falls back to its
+# local spool). The platform must never become a single point of failure for the
+# site — hence no Requires=/Wants= from the API side, and a bounded start timeout
+# so a stuck platform delays the API by five minutes at most.
+#
+# The worktree path below must match where `git worktree add` put it.
+
+[Unit]
+Description=quant-platform (Kafka, audit database, telemetry) — docker compose
+Requires=docker.service
+After=docker.service network-online.target
+Before=quant-modeling.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/hadriensuper/quant-platform-prod
+User=hadriensuper
+SupplementaryGroups=docker
+# deploy.sh is idempotent and boot-safe: it syncs the checkout (non-fatal when
+# offline), builds, and starts every service, waiting for healthchecks.
+ExecStart=/bin/bash scripts/deploy.sh
+ExecStop=/usr/bin/docker compose down
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

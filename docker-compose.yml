@@ -1,0 +1,10 @@
+# quant-platform — event bus, audit trail and observability.
+#
+# Nothing here is published outside 127.0.0.1. Kafka and the audit database are
+# reachable only through the external `dataplatform` network, by container name.
+# Services are added lot by lot (see blueprint/README.md).
+name: quant-platform
+
+networks:
+  dataplatform:
+    external: true
