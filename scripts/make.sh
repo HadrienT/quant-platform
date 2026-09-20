@@ -34,6 +34,10 @@ docker compose --env-file "$envfile" --profile '*' config -q
 step "compose policy (pinned images, limits, loopback-only ports)"
 docker compose --env-file "$envfile" --profile '*' config --format json | python3 scripts/check_compose.py
 
+step "lab compose (WP 06): valid, and the same policy"
+docker compose -f docker-compose.lab.yml --profile '*' config -q
+docker compose -f docker-compose.lab.yml --profile '*' config --format json | python3 scripts/check_compose.py
+
 step "yamllint"
 yamllint .
 

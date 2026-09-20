@@ -20,11 +20,15 @@ l'instrumentation de l'API : celle-ci vit dans `~/quant-modeling`
 
 Le dépôt est né d'un document de conception écrit côté `quant-modeling`
 (`~/quant-modeling/blueprint/wp/18-observability.md`, qui reste la vue
-d'ensemble des deux dépôts). **Au moment de la création, il ne contient que de
-la documentation** : rien n'est encore construit. Le travail est découpé en lots
-dans [`blueprint/wp/`](blueprint/wp/) ; le graphe de dépendances est dans
-[`blueprint/README.md`](blueprint/README.md) — le consulter avant de démarrer un
-lot pour vérifier que ses prérequis sont faits.
+d'ensemble des deux dépôts). **Les lots 00 à 06 sont construits** (voir le
+tableau de [`blueprint/README.md`](blueprint/README.md)) : socle et déploiement,
+Kafka, base d'audit et puits, télémétrie, qualité des données et alertes,
+registre de schémas, laboratoire d'exercices. Ne restent **ouverts** que ce que
+chaque lot signale comme dépendant d'un tiers : le canal de notification (choix
+du mainteneur, ADR-013), l'exposition de Grafana par Cloudflare Access (action
+manuelle, `docs/RUNBOOK.md` §7), et les tests croisés avec l'API de
+`quant-modeling` (lots 18a–18e). Les hypothèses sur les payloads du producteur
+sont dans l'ADR-011 §6 — à confirmer côté `quant-modeling`.
 
 ## Relation avec les autres dépôts
 
@@ -93,17 +97,25 @@ Ne créer un dossier que quand un lot le remplit.
 
 ## Commandes
 
-Ces commandes sont la **cible** ; chacune n'existe qu'une fois son lot livré
-(le lot est indiqué). Ne pas les présenter comme disponibles avant.
-
-| | Lot |
+| | |
 |---|---|
-| `docker compose up -d` — la plateforme | 00, 01 |
-| `scripts/smoke.sh` — produit un événement, le relit ; puis producteur → Kafka → sink → Postgres | 01, 02 |
-| `scripts/make.sh` — lint + validation compose + tests | 00 |
-| `pytest` — tests du sink et du contrôle qualité | 02 |
-| `scripts/deploy.sh` — depuis le dossier de prod uniquement | 00 |
-| `pip-compile` — régénère les `requirements*.txt` figés depuis les `.in` | 02 |
+| `scripts/bootstrap.sh` — crée `.venv` avec l'outillage figé (`requirements-dev.txt`) | dev |
+| `scripts/make.sh` — compose + règles Docker + yamllint + shellcheck + black + pytest | tous |
+| `scripts/init_env.sh` (`--sync`) — crée `.env` avec des secrets aléatoires / ajoute les variables manquantes | 00 |
+| `scripts/up.sh` — dev : recalcule les hachages de configuration, `up -d --wait` | 04 |
+| `scripts/deploy.sh` — **depuis `~/quant-platform-prod` uniquement** | 00 |
+| `scripts/smoke.sh` — produit, relit, compare ; puis Kafka → sink → Postgres | 01, 02 |
+| `scripts/crash_test.sh`, `test_privileges.sh`, `audit_e2e.sh`, `test_migrations.sh` — critères du lot 02 | 02 |
+| `scripts/telemetry_e2e.sh`, `check_labels.sh`, `check_dashboards.py`, `measure_memory.sh` | 03 |
+| `scripts/dq_crash_test.sh`, `dq_independence_test.sh`, `alert_e2e.sh` | 04 |
+| `.venv/bin/python scripts/registry_test.py` | 05 |
+| `scripts/lab_up.sh` / `lab_down.sh` — laboratoire jetable (lot 06, jamais la prod) | 06 |
+| `pytest` — tests unitaires (sink, `data-quality`, code partagé) | 02+ |
+| `pip-compile <fichier>.in` — régénère les `requirements*.txt` figés | 02 |
+
+Les scripts d'intégration ont besoin de la pile de **développement** lancée. La base
+d'audit est append-only : leurs lignes de test y restent (`docker compose down -v`
+remet la pile de dev à zéro ; jamais sur la prod).
 
 ## Suivi du travail — GitHub Issues, pas de markdown de handoff
 

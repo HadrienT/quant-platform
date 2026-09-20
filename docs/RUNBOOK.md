@@ -263,7 +263,22 @@ chaque `up` par `registry-init`. Format des messages et règles d'évolution : `
 **Test** (pile lancée) : `.venv/bin/python scripts/registry_test.py` (enregistrement, évolution,
 schéma incompatible refusé, taille JSON/Avro, survie au redémarrage, panne du registre).
 
-## 10. Vérifier la santé
+## 10. Laboratoire d'exercices (lot 06)
+
+`docker-compose.lab.yml` est un **projet Compose distinct** (`quant-platform-lab`) : ses propres
+volumes, son propre réseau, aucun port publié, **jamais** relié à `dataplatform`. Les exercices y
+tuent des brokers et réécrivent des offsets ; ils ne touchent pas la plateforme.
+
+```bash
+scripts/lab_up.sh              # grappe de 3 brokers (vérifie d'abord l'isolation, refuse sinon)
+scripts/lab_up.sh replay       # + sink et Postgres jetables (rejeu à grande échelle)
+scripts/lab_down.sh            # détruit conteneurs, volumes et réseau, et VÉRIFIE qu'il ne reste rien
+```
+
+Les exercices et leurs **observations réelles** sont dans [`exercices.md`](exercices.md) (partie B).
+Le lab consomme ≈ 2 Go de RAM quand il tourne avec la grappe ; le détruire dès qu'on a fini.
+
+## 11. Vérifier la santé
 
 ```bash
 ./scripts/make.sh                        # (dev) lint + validation + tests

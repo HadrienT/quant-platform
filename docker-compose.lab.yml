@@ -1,0 +1,201 @@
+# quant-platform LAB — a disposable environment for the operator exercises (WP 06).
+#
+# It is a DIFFERENT compose project (`quant-platform-lab`) with its own volumes and
+# its own network. It is never attached to `dataplatform`, publishes no port, and
+# must never touch the running platform: the exercises kill brokers and rewrite
+# offsets. scripts/lab_up.sh checks all of this before starting anything.
+#
+#   scripts/lab_up.sh [profile…]      profiles: replay (sink + Postgres), sasl, solo
+#   scripts/lab_down.sh               removes containers, volumes and network
+name: quant-platform-lab
+
+x-broker: &broker
+  image: apache/kafka:4.1.1
+  restart: "no"
+  mem_limit: 768m
+  cpus: 1
+
+x-broker-env: &broker-env
+  # Lab-only cluster id (a fixed value is fine: nothing else ever joins this cluster).
+  CLUSTER_ID: lab0000000000000000000
+  KAFKA_PROCESS_ROLES: broker,controller
+  KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093
+  KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+  KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+  KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+  KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+  # What production looks like: 3 replicas, at least 2 in sync to accept a write.
+  KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+  KAFKA_MIN_INSYNC_REPLICAS: 2
+  KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+  KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+  KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+  KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+  KAFKA_LOG_DIRS: /var/lib/kafka/data
+  KAFKA_HEAP_OPTS: -Xmx384m -Xms384m
+
+services:
+  # ── Exercise 1, 2, 4, 5, 6: a 3-broker KRaft cluster ─────────────────────────
+  kafka-1:
+    <<: *broker
+    environment:
+      <<: *broker-env
+      KAFKA_NODE_ID: 1
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-1:9092
+    volumes:
+      - kafka-1-data:/var/lib/kafka/data
+
+  kafka-2:
+    <<: *broker
+    environment:
+      <<: *broker-env
+      KAFKA_NODE_ID: 2
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-2:9092
+    volumes:
+      - kafka-2-data:/var/lib/kafka/data
+
+  kafka-3:
+    <<: *broker
+    environment:
+      <<: *broker-env
+      KAFKA_NODE_ID: 3
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-3:9092
+    volumes:
+      - kafka-3-data:/var/lib/kafka/data
+
+  # ── Exercise 6 (comparison): ONE broker, replication factor 1 ────────────────
+  kafka-solo:
+    <<: *broker
+    profiles: [solo]
+    environment:
+      CLUSTER_ID: lab0000000000000000001
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-solo:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-solo:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_HEAP_OPTS: -Xmx384m -Xms384m
+    volumes:
+      - kafka-solo-data:/var/lib/kafka/data
+
+  # ── Exercise 3: one broker with SASL/SCRAM and ACLs ──────────────────────────
+  # Two doors: ADMIN (plaintext, inside the container only, for setup) and CLIENT
+  # (SASL/SCRAM on :9095, what an application would use). ANONYMOUS on the admin
+  # door is a super user — acceptable ONLY because that door is localhost inside a
+  # throw-away container.
+  kafka-sasl:
+    <<: *broker
+    profiles: [sasl]
+    environment:
+      CLUSTER_ID: lab0000000000000000002
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-sasl:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: ADMIN://localhost:9092,CLIENT://:9095,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: ADMIN://localhost:9092,CLIENT://kafka-sasl:9095
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: ADMIN:PLAINTEXT,CLIENT:SASL_PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: ADMIN
+      KAFKA_SASL_ENABLED_MECHANISMS: SCRAM-SHA-256
+      KAFKA_AUTHORIZER_CLASS_NAME: org.apache.kafka.metadata.authorizer.StandardAuthorizer
+      KAFKA_SUPER_USERS: User:ANONYMOUS
+      KAFKA_OPTS: -Djava.security.auth.login.config=/etc/kafka/jaas.conf
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_HEAP_OPTS: -Xmx384m -Xms384m
+    volumes:
+      - ./lab/jaas.conf:/etc/kafka/jaas.conf:ro
+
+  # ── Exercise 5: the audit sink + its own Postgres, to replay at scale ────────
+  lab-audit:
+    image: postgres:17.6
+    profiles: [replay]
+    restart: "no"
+    mem_limit: 768m
+    cpus: 2
+    shm_size: 64m
+    command: [postgres, -c, shared_buffers=256MB, -c, max_connections=40, -c, synchronous_commit=on]
+    environment:
+      POSTGRES_USER: qm_admin
+      POSTGRES_PASSWORD: lab
+      POSTGRES_DB: qm_audit
+      AUDIT_DB_OWNER_PASSWORD: lab
+      AUDIT_DB_WRITER_PASSWORD: lab
+      AUDIT_DB_READER_PASSWORD: lab
+    volumes:
+      - ./qm-audit/init:/docker-entrypoint-initdb.d:ro
+      - lab-audit-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U qm_admin -d qm_audit"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  lab-migrate:
+    image: postgres:17.6
+    profiles: [replay]
+    restart: "no"
+    mem_limit: 128m
+    cpus: 0.5
+    entrypoint: ["/bin/bash", "/opt/migrate/migrate.sh"]
+    environment:
+      PGHOST: lab-audit
+      PGDATABASE: qm_audit
+      PGUSER: audit_owner
+      PGPASSWORD: lab
+    volumes:
+      - ./scripts/migrate.sh:/opt/migrate/migrate.sh:ro
+      - ./migrations:/opt/migrate/migrations:ro
+    depends_on:
+      lab-audit:
+        condition: service_healthy
+
+  lab-sink:
+    image: quant-platform/audit-sink:${COMMIT_SHA:-dev}
+    profiles: [replay]
+    restart: "no"
+    mem_limit: 256m
+    cpus: 2
+    environment:
+      KAFKA_BOOTSTRAP: kafka-1:9092
+      PGHOST: lab-audit
+      PGDATABASE: qm_audit
+      PGUSER: audit_writer
+      PGPASSWORD: lab
+      SINK_BATCH_SIZE: ${LAB_SINK_BATCH_SIZE:-500}
+      SINK_METRICS_PORT: 9108
+    depends_on:
+      lab-migrate:
+        condition: service_completed_successfully
+
+  # ── Exercise 2: timestamped producer/consumers (run with `compose run`) ──────
+  lab-probe:
+    image: quant-platform/audit-sink:${COMMIT_SHA:-dev}
+    profiles: [probe]
+    restart: "no"
+    mem_limit: 128m
+    cpus: 0.5
+    entrypoint: ["python", "-u", "/lab/probe.py"]
+    environment:
+      KAFKA_BOOTSTRAP: kafka-1:9092,kafka-2:9092,kafka-3:9092
+    volumes:
+      - ./lab:/lab:ro
+
+volumes:
+  kafka-1-data:
+  kafka-2-data:
+  kafka-3-data:
+  kafka-solo-data:
+  lab-audit-data:
