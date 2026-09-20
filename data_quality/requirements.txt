@@ -10,6 +10,8 @@ attrs==26.1.0
     #   referencing
 confluent-kafka==2.15.1
     # via -r data_quality/requirements.in
+fastavro==1.12.2
+    # via -r data_quality/requirements.in
 jsonschema==4.26.0
     # via -r data_quality/requirements.in
 jsonschema-specifications==2025.9.1

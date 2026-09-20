@@ -4,14 +4,28 @@
 #
 #    pip-compile --no-index --output-file=requirements-dev.txt --strip-extras requirements-dev.in
 #
+anyio==4.15.1
+    # via httpx
 attrs==26.1.0
     # via
+    #   confluent-kafka
     #   jsonschema
     #   referencing
+authlib==1.8.0
+    # via confluent-kafka
 black==26.5.1
     # via -r requirements-dev.in
 build==1.6.1
     # via pip-tools
+cachetools==7.2.0
+    # via confluent-kafka
+certifi==2026.7.22
+    # via
+    #   confluent-kafka
+    #   httpcore
+    #   httpx
+cffi==2.1.1
+    # via cryptography
 click==8.5.0
     # via
     #   black
@@ -19,9 +33,30 @@ click==8.5.0
 confluent-kafka==2.15.1
     # via
     #   -r data_quality/requirements.in
+    #   -r requirements-dev.in
     #   -r sink/requirements.in
+cryptography==50.0.1
+    # via
+    #   authlib
+    #   joserfc
+fastavro==1.12.2
+    # via
+    #   -r data_quality/requirements.in
+    #   -r sink/requirements.in
+h11==0.16.0
+    # via httpcore
+httpcore==1.0.9
+    # via httpx
+httpx==0.28.1
+    # via confluent-kafka
+idna==3.20
+    # via
+    #   anyio
+    #   httpx
 iniconfig==2.3.0
     # via pytest
+joserfc==1.7.5
+    # via authlib
 jsonschema==4.26.0
     # via
     #   -r data_quality/requirements.in
@@ -54,6 +89,8 @@ psycopg==3.3.6
     # via -r sink/requirements.in
 psycopg-binary==3.3.6
     # via psycopg
+pycparser==3.0
+    # via cffi
 pygments==2.21.0
     # via pytest
 pyproject-hooks==1.3.3
@@ -76,6 +113,8 @@ rpds-py==2026.6.3
     #   referencing
 shellcheck-py==0.11.0.1
     # via -r requirements-dev.in
+typing-extensions==4.16.0
+    # via anyio
 wheel==0.48.0
     # via pip-tools
 yamllint==1.38.0

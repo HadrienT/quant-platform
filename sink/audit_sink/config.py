@@ -16,6 +16,8 @@ class Config:
     batch_size: int = 500
     batch_timeout_s: float = 1.0
     metrics_port: int = 9108
+    # Confluent-compatible registry API; empty = JSON messages only.
+    schema_registry_url: str = ""
     log_level: str = "INFO"
     # Test hook (crash test, exercise 3): sleep AFTER the database commit and BEFORE
     # the offset commit — the exact window where a crash forces a re-read.
@@ -32,6 +34,7 @@ class Config:
             batch_size=int(e.get("SINK_BATCH_SIZE", cls.batch_size)),
             batch_timeout_s=int(e.get("SINK_BATCH_TIMEOUT_MS", "1000")) / 1000,
             metrics_port=int(e.get("SINK_METRICS_PORT", cls.metrics_port)),
+            schema_registry_url=e.get("SCHEMA_REGISTRY_URL", ""),
             log_level=e.get("LOG_LEVEL", cls.log_level),
             debug_delay_s=int(e.get("SINK_DEBUG_DELAY_MS", "0")) / 1000,
             db={

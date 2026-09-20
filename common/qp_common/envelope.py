@@ -39,14 +39,21 @@ def _load_validator() -> Draft202012Validator:
 _VALIDATOR = _load_validator()
 
 
-def parse_envelope(raw: bytes | None) -> Envelope:
-    """Decode and validate one Kafka message value; raise EnvelopeError if invalid."""
+def _decode_json(raw: bytes | None) -> Any:
     if not raw:
         raise EnvelopeError("empty message")
     try:
-        doc = json.loads(raw)
+        return json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise EnvelopeError(f"not valid UTF-8 JSON: {exc}") from exc
+
+
+def parse_envelope(raw: bytes | None, decoder: Any = None) -> Envelope:
+    """Decode and validate one Kafka message value; raise EnvelopeError if invalid.
+
+    `decoder` (qp_common.wire.Decoder) adds Avro support; without one the value is JSON.
+    """
+    doc = decoder.decode(raw) if decoder is not None else _decode_json(raw)
 
     errors = sorted(_VALIDATOR.iter_errors(doc), key=lambda e: list(e.absolute_path))
     if errors:

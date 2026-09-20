@@ -6,6 +6,7 @@ from confluent_kafka import Consumer
 
 from qp_common import logs, metrics
 from qp_common.lifecycle import GracefulStop
+from qp_common.wire import Decoder, RegistryClient
 
 from .aggregate import Aggregator
 from .config import Config
@@ -34,7 +35,10 @@ def main() -> None:
         }
     )
     try:
-        Worker(cfg, consumer, aggregator, stop).run()
+        registry = (
+            RegistryClient(cfg.schema_registry_url) if cfg.schema_registry_url else None
+        )
+        Worker(cfg, consumer, aggregator, stop, decoder=Decoder(registry)).run()
     finally:
         consumer.close()
         log.info("data-quality stopped")

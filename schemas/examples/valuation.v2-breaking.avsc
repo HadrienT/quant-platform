@@ -1,0 +1,96 @@
+{
+  "type": "record",
+  "name": "Event",
+  "namespace": "qm.audit.valuation",
+  "doc": "Example full-event record for qm.audit.valuation.v1: the contract envelope fields plus a producer-owned `payload` record. Used by the platform's registry tests and exercises; the real payload schema belongs to quant-modeling (ADR-002).",
+  "fields": [
+    {
+      "name": "event_id",
+      "type": "string"
+    },
+    {
+      "name": "type",
+      "type": "string"
+    },
+    {
+      "name": "version",
+      "type": "int"
+    },
+    {
+      "name": "occurred_at",
+      "type": "string"
+    },
+    {
+      "name": "request_id",
+      "type": [
+        "null",
+        "string"
+      ],
+      "default": null
+    },
+    {
+      "name": "trace_id",
+      "type": [
+        "null",
+        "string"
+      ],
+      "default": null
+    },
+    {
+      "name": "username",
+      "type": [
+        "null",
+        "string"
+      ],
+      "default": null
+    },
+    {
+      "name": "producer",
+      "type": {
+        "type": "record",
+        "name": "Producer",
+        "fields": [
+          {
+            "name": "service",
+            "type": "string"
+          },
+          {
+            "name": "git_sha",
+            "type": "string",
+            "default": ""
+          },
+          {
+            "name": "lib_build",
+            "type": "string",
+            "default": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "payload",
+      "type": {
+        "type": "record",
+        "name": "Payload",
+        "fields": [
+          {
+            "name": "product",
+            "type": "string"
+          },
+          {
+            "name": "npv",
+            "type": "double"
+          },
+          {
+            "name": "duration_ms",
+            "type": "int"
+          },
+          {
+            "name": "model_name",
+            "type": "string"
+          }
+        ]
+      }
+    }
+  ]
+}

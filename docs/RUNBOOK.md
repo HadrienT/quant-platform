@@ -239,7 +239,31 @@ que Grafana poste les notifications à un récepteur local jetable).
 (`vol_surface.py`, `local_vol_pricing.py`, `simulation.py`). Tant qu'elle ne l'est pas, le
 tableau de bord *Pricing* montre l'écart restant.
 
-## 9. Vérifier la santé
+## 9. Registre de schémas (lot 05)
+
+Apicurio Registry (`schema-registry`), console et API sur `http://127.0.0.1:8082` (depuis
+Windows : tunnel SSH `-L 8082:127.0.0.1:8082`). Compatibilité globale **`BACKWARD`**, posée à
+chaque `up` par `registry-init`. Format des messages et règles d'évolution : `docs/contract.md` §5.
+
+- **État** : dans le topic Kafka `kafkasql-journal` (rétention illimitée). **Ne jamais le
+  supprimer ni réduire sa rétention** : chaque message Avro contient l'identifiant d'un schéma
+  que seul ce journal connaît. `docker compose down` (sans `-v`) et les redémarrages le
+  conservent ; `down -v` le détruit — les schémas se ré-enregistrent depuis les producteurs,
+  mais avec de **nouveaux identifiants**, donc les anciens messages Avro encore dans Kafka
+  deviennent illisibles (le sink les envoie en DLQ). La base d'audit, elle, n'est pas touchée.
+- **Sauvegarde** : `scripts/backup_registry.sh` (export zip de tous les schémas), lancé avec
+  la sauvegarde d'audit. Restauration : console → *Import* du zip, ou
+  `POST /apis/registry/v3/admin/import`.
+- **Si le registre est en panne** : les messages JSON continuent de passer ; les messages Avro
+  dont le schéma n'est pas déjà en cache attendent (le sink réessaie, le retard augmente, rien
+  n'est perdu ni mis en DLQ). Le relancer suffit.
+- **Un producteur reçoit un 409** en enregistrant son schéma : le message nomme le champ fautif.
+  Ajouter le champ avec une valeur par défaut, ou créer un topic `…v2`.
+
+**Test** (pile lancée) : `.venv/bin/python scripts/registry_test.py` (enregistrement, évolution,
+schéma incompatible refusé, taille JSON/Avro, survie au redémarrage, panne du registre).
+
+## 10. Vérifier la santé
 
 ```bash
 ./scripts/make.sh                        # (dev) lint + validation + tests

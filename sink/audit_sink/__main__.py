@@ -6,6 +6,7 @@ from confluent_kafka import Consumer, Producer
 
 from qp_common import logs, metrics
 from qp_common.lifecycle import GracefulStop
+from qp_common.wire import Decoder, RegistryClient
 
 from .config import Config
 from .store import Store
@@ -44,8 +45,11 @@ def main() -> None:
         }
     )
     store = Store(cfg.db)
+    registry = (
+        RegistryClient(cfg.schema_registry_url) if cfg.schema_registry_url else None
+    )
     try:
-        Worker(cfg, consumer, producer, store, stop).run()
+        Worker(cfg, consumer, producer, store, stop, decoder=Decoder(registry)).run()
     finally:
         store.close()
         producer.flush(10)

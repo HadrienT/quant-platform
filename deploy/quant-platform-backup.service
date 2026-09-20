@@ -21,3 +21,5 @@ SupplementaryGroups=docker
 EnvironmentFile=-/etc/quant-platform-backup.conf
 WorkingDirectory=/home/hadriensuper/quant-platform-prod
 ExecStart=/bin/bash scripts/backup_audit.sh
+# The schema registry export rides along; a failure here must not fail the audit backup.
+ExecStartPost=-/bin/bash scripts/backup_registry.sh

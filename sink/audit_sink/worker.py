@@ -22,12 +22,14 @@ from prometheus_client import Counter, Gauge, Histogram
 
 from qp_common.dlq import DLQ_TOPIC, Rejected, dlq_headers
 from qp_common.envelope import EnvelopeError, parse_envelope
+from qp_common.errors import Shutdown, TransientError
 from qp_common.lifecycle import GracefulStop
 from qp_common.logs import fields
-from qp_common.retry import Backoff
+from qp_common.retry import retry_transient
+from qp_common.wire import Decoder
 
 from .config import Config
-from .store import InsertResult, Record, Store, TransientError
+from .store import InsertResult, Record, Store
 
 log = logging.getLogger(__name__)
 
@@ -44,10 +46,6 @@ LAST_SUCCESS = Gauge(
 BATCH_SECONDS = Histogram("qp_sink_batch_seconds", "Time to process one batch")
 
 
-class Shutdown(Exception):
-    """A stop was requested while retrying: leave WITHOUT committing (safe)."""
-
-
 class Worker:
     def __init__(
         self,
@@ -57,6 +55,7 @@ class Worker:
         store: Store,
         stop: GracefulStop,
         sleep: Callable[[float], None] = time.sleep,
+        decoder: Decoder | None = None,
     ) -> None:
         self._cfg = cfg
         self._consumer = consumer
@@ -64,6 +63,7 @@ class Worker:
         self._store = store
         self._stop = stop
         self._sleep = sleep
+        self._decoder = decoder or Decoder(None)  # JSON only unless a registry is given
         # Offsets processed but whose Kafka commit failed; retried on the next
         # commit and before partitions are handed back on a rebalance.
         self._uncommitted: dict[tuple[str, int], int] = {}
@@ -103,7 +103,10 @@ class Worker:
             key = (msg.topic(), msg.partition())
             offsets[key] = max(offsets.get(key, -1), msg.offset())
             try:
-                env = parse_envelope(msg.value())
+                # A registry outage is transient: retry, never dead-letter the message.
+                env = self._retry(
+                    "registry", lambda m=msg: parse_envelope(m.value(), self._decoder)
+                )
             except EnvelopeError as exc:
                 rejected.append(self._reject(msg, str(exc)))
             else:
@@ -170,20 +173,15 @@ class Worker:
         return out
 
     def _retry(self, component: str, action: Callable[[], T]) -> T:
-        backoff = Backoff()
-        while True:
-            try:
-                return action()
-            except TransientError as exc:
-                TRANSIENT.labels(component).inc()
-                delay = backoff.next_delay()
-                log.error(
-                    "transient %s failure, retrying without commit",
-                    component,
-                    extra=fields(error=str(exc), retry_in_s=round(delay, 1)),
-                )
-                if self._stop.sleep(delay):
-                    raise Shutdown from exc
+        def on_error(exc: TransientError, delay: float) -> None:
+            TRANSIENT.labels(component).inc()
+            log.error(
+                "transient %s failure, retrying without commit",
+                component,
+                extra=fields(error=str(exc), retry_in_s=round(delay, 1)),
+            )
+
+        return retry_transient(action, self._stop, on_error)
 
     def _publish_dlq(self, rejected: list[Rejected]) -> None:
         failures: list[str] = []

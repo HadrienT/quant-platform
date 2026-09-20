@@ -16,8 +16,11 @@ from typing import Any
 from confluent_kafka import KafkaError, KafkaException, TopicPartition
 
 from qp_common.envelope import EnvelopeError, parse_envelope
+from qp_common.errors import Shutdown, TransientError
 from qp_common.lifecycle import GracefulStop
 from qp_common.logs import fields
+from qp_common.retry import retry_transient
+from qp_common.wire import Decoder
 
 from .aggregate import SKIPPED, Aggregator
 from .config import Config
@@ -33,12 +36,14 @@ class Worker:
         aggregator: Aggregator,
         stop: GracefulStop,
         sleep: Callable[[float], None] = time.sleep,
+        decoder: Decoder | None = None,
     ) -> None:
         self._cfg = cfg
         self._consumer = consumer
         self._agg = aggregator
         self._stop = stop
         self._sleep = sleep
+        self._decoder = decoder or Decoder(None)
         self._uncommitted: dict[tuple[str, int], int] = {}
 
     def run(self) -> None:
@@ -46,13 +51,29 @@ class Worker:
             list(self._cfg.topics), on_assign=self._on_assign, on_revoke=self._on_revoke
         )
         log.info("data-quality started", extra=fields(topics=list(self._cfg.topics)))
-        while not self._stop.requested:
-            msgs = self._consumer.consume(
-                num_messages=self._cfg.batch_size, timeout=self._cfg.batch_timeout_s
-            )
-            if msgs:
-                self.process_batch(msgs)
+        try:
+            while not self._stop.requested:
+                msgs = self._consumer.consume(
+                    num_messages=self._cfg.batch_size, timeout=self._cfg.batch_timeout_s
+                )
+                if msgs:
+                    self.process_batch(msgs)
+        except Shutdown:
+            log.info("stop requested during a retry: leaving without committing")
         log.info("data-quality stopping")
+
+    def _parse(self, raw: bytes | None):
+        """Decode one message; a schema-registry outage is retried, not skipped."""
+
+        def on_error(exc: TransientError, delay: float) -> None:
+            log.error(
+                "schema registry unavailable, retrying without commit",
+                extra=fields(error=str(exc), retry_in_s=round(delay, 1)),
+            )
+
+        return retry_transient(
+            lambda: parse_envelope(raw, self._decoder), self._stop, on_error
+        )
 
     def process_batch(self, msgs: list[Any]) -> None:
         offsets: dict[tuple[str, int], int] = {}
@@ -64,7 +85,7 @@ class Worker:
             key = (msg.topic(), msg.partition())
             offsets[key] = max(offsets.get(key, -1), msg.offset())
             try:
-                env = parse_envelope(msg.value())
+                env = self._parse(msg.value())
             except EnvelopeError:
                 # The audit sink dead-letters invalid envelopes; this consumer only counts them.
                 SKIPPED.labels("invalid_envelope").inc()

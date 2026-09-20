@@ -121,10 +121,38 @@ supprimer une partition entière — jamais un `DELETE` ligne à ligne.
 
 ## 5. Compatibilité et évolution
 
-- Avant le lot 05 : les payloads sont décrits par des **JSON Schema** dans le
-  dépôt producteur, validés par ses tests ; le sink **n'interprète pas** le
-  payload (il le stocke en `jsonb`).
-- À partir du lot 05 : Avro + Apicurio Registry, mode `BACKWARD` par sujet ; un
-  schéma incompatible fait échouer la CI du producteur.
-- Un changement **incompatible** = nouveau topic `…v2`, jamais une mutation de
-  `…v1`.
+- **Avant le lot 05** : les payloads sont décrits par des **JSON Schema** dans le dépôt
+  producteur, validés par ses tests ; le sink **n'interprète pas** le payload (il le
+  stocke en `jsonb`).
+- **À partir du lot 05** : Avro + Apicurio Registry, mode **`BACKWARD`** posé globalement ;
+  un schéma incompatible est refusé (HTTP 409, avec le champ fautif dans le message) et
+  fait donc échouer la CI du producteur.
+- **Les deux formats coexistent sur un même topic**, ce qui permet la migration sans
+  « jour J » : le sink reconnaît le format au premier octet.
+- Un changement **incompatible** = nouveau topic `…v2`, jamais une mutation de `…v1`.
+
+### Format Avro sur le fil
+
+La **valeur** du message est l'événement **entier** (champs de l'enveloppe du §1 + `payload`)
+encodé en Avro, dans le cadrage standard de Confluent :
+
+| Octets | Contenu |
+|---|---|
+| 0 | octet magique `0x00` (un message JSON commence par `{`, jamais par `0x00`) |
+| 1–4 | identifiant du schéma dans le registre, entier big-endian |
+| 5… | corps Avro, écrit avec ce schéma |
+
+- **Sujet** = `<topic>-value` (un topic = un schéma, §2) : `qm.audit.valuation.v1-value`.
+- Le schéma est un `record` dont les champs sont ceux de l'enveloppe (`event_id`, `type`,
+  `version`, `occurred_at` en **chaîne** ISO 8601, `request_id`/`trace_id`/`username` en
+  `["null","string"]` avec défaut `null`, `producer`, `payload`) ; **`payload` est un `record`
+  défini par le producteur**. Exemple : [`../schemas/examples/valuation.v1.avsc`](../schemas/examples/valuation.v1.avsc).
+- Les **règles d'évolution `BACKWARD`** : ajouter un champ **avec valeur par défaut** ; retirer
+  un champ ; ne jamais ajouter un champ obligatoire sans défaut, ni changer le type d'un champ.
+- Le sink décode avec le schéma **de l'écrivain** (identifiant du message), applique la même
+  validation d'enveloppe qu'aux messages JSON, et stocke le `payload` en `jsonb` : la base
+  d'audit ne change pas avec le format.
+- Une panne du registre est **transitoire** (le sink réessaie, ne dead-lettre rien) ; un
+  identifiant de schéma inconnu est **permanent** (DLQ).
+- URL du registre depuis un conteneur du réseau `dataplatform` :
+  `http://schema-registry:8080/apis/ccompat/v7` (API compatible Confluent).

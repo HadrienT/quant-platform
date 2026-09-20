@@ -25,3 +25,11 @@ topics:
   - { name: qm.assistant.chat.v1, partitions: 1, retention_ms: 2592000000, cleanup_policy: delete }
   # key: source_topic — messages a consumer rejected (headers dlq.* say why).
   - { name: qm.dlq.v1, partitions: 1, retention_ms: 2592000000, cleanup_policy: delete }
+
+# Apicurio's own storage (KafkaSQL, WP 05). Not `qm.*`: they are the registry's state,
+# not events. retention_ms -1 = never expire — losing the journal loses every schema
+# id, and with it the ability to read Avro messages already in Kafka.
+  - { name: kafkasql-journal, partitions: 1, retention_ms: -1, cleanup_policy: delete }
+  - { name: kafkasql-snapshots, partitions: 1, retention_ms: -1, cleanup_policy: delete }
+# Apicurio publishes a notification per schema change here; nothing consumes it. Kept short.
+  - { name: registry-events, partitions: 1, retention_ms: 604800000, cleanup_policy: delete }

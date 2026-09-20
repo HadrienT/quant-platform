@@ -296,3 +296,42 @@ voir 2.
 **Écarté.** *Rechargement à chaud de Prometheus* (`--web.enable-lifecycle`) : ne couvre ni
 Loki, ni Tempo, ni le Collector. *Compteurs persistés par `data-quality`* : de la complexité
 pour un signal qui n'a pas besoin d'être exact.
+
+---
+
+## ADR-014 — Registre de schémas (lot 05)
+
+**Décisions.**
+
+1. **Apicurio Registry 3.1.2, mode de stockage KafkaSQL.** L'état du registre vit dans un
+   topic Kafka (`kafkasql-journal`, rétention **illimitée**, déclaré dans `topics.yml`) : pas
+   de base de plus. C'est une **exception assumée** au principe « Kafka n'est pas l'archive » :
+   ici Kafka *est* le magasin, et perdre le journal ferait perdre tous les identifiants de
+   schéma, donc la lisibilité des messages Avro déjà présents. Compensations : export
+   `scripts/backup_registry.sh` (dans la même unité de sauvegarde que la base d'audit), et
+   la base d'audit garde le payload en `jsonb` lisible sans registre. Apicurio crée ses topics
+   internes lui-même (l'API d'administration ignore `auto.create.topics.enable`) ; ils sont
+   quand même **déclarés en code** pour rester alignés par `topics.sh`.
+2. **Test de fumée fait en premier, comme le lot le demande** : le client officiel
+   `confluent-kafka-python` (`SchemaRegistryClient`, `AvroSerializer`) fonctionne sans
+   adaptation contre la couche de compatibilité d'Apicurio ; l'alternative **Karapace**
+   n'a donc pas été nécessaire.
+3. **Schémas laissés au producteur** (décision demandée par le lot) : les payloads
+   appartiennent à `quant-modeling` (ADR-002) ; le dépôt ne garde que des **exemples**
+   (`schemas/examples/`) pour ses tests et exercices. Le registre est l'endroit où les deux
+   dépôts se rencontrent.
+4. **Événement entier en Avro, pas seulement le payload.** Un seul schéma par topic, un seul
+   identifiant par message ; le contrat d'enveloppe reste vérifié après décodage par le même
+   JSON Schema que pour le JSON.
+5. **Client de registre minimal dans `qp_common`** (`GET /schemas/ids/{id}`, mis en cache
+   indéfiniment car un identifiant est immuable) plutôt que la bibliothèque officielle :
+   le sink n'a besoin que de *lire* un schéma par identifiant, et évite ainsi `httpx`,
+   `authlib` et `cachetools` dans une image plafonnée à 128 Mo. La bibliothèque officielle
+   sert aux tests.
+6. **Pas d'authentification sur le registre** : joignable seulement sur `dataplatform` et
+   `127.0.0.1`. Un producteur compromis pourrait enregistrer un schéma compatible, mais pas
+   en briser un existant (`BACKWARD`). À revoir avec SASL/ACL (lot 06).
+
+**Écarté.** *Confluent Schema Registry* (licence communautaire, ADR-010) ; *registre sur
+Postgres* (un second rôle, une seconde base à sauvegarder) ; *Avro seulement pour le payload*
+(deux schémas par message, enveloppe non versionnée).

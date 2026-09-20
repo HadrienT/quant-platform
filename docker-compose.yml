@@ -220,6 +220,8 @@ services:
       PGUSER: audit_writer
       PGPASSWORD: ${AUDIT_DB_WRITER_PASSWORD:?}
       SINK_BATCH_SIZE: ${SINK_BATCH_SIZE:-500}
+      # Avro messages resolve their schema here; JSON messages never need it.
+      SCHEMA_REGISTRY_URL: http://schema-registry:8080/apis/ccompat/v7
       SINK_DEBUG_DELAY_MS: ${SINK_DEBUG_DELAY_MS:-0}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
@@ -242,6 +244,58 @@ services:
       retries: 5
       start_period: 15s
 
+  # ── WP 05 ── Schema registry (Apicurio, Confluent-compatible API) ─────────────
+  # Producers register their Avro schema here; consumers read it by id. Its state
+  # lives in Kafka topics (KafkaSQL: kafkasql-journal, never expiring — declared in
+  # topics/topics.yml), so it needs no database of its own (ADR-014). No authentication:
+  # reachable only on dataplatform and 127.0.0.1.
+  schema-registry:
+    image: apicurio/apicurio-registry:3.1.2
+    container_name: schema-registry
+    logging: *default-logging
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1
+    environment:
+      APICURIO_STORAGE_KIND: kafkasql
+      APICURIO_KAFKASQL_BOOTSTRAP_SERVERS: kafka:9092
+      JAVA_OPTS_APPEND: -Xmx320m
+    ports:
+      - "127.0.0.1:${QP_REGISTRY_PORT:-8082}:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      topics-init:
+        condition: service_completed_successfully
+    networks:
+      - default
+      - dataplatform
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health/ready >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  # One-shot: global compatibility = BACKWARD (idempotent), on every `up`.
+  registry-init:
+    image: apicurio/apicurio-registry:3.1.2
+    container_name: qp-registry-init
+    logging: *default-logging
+    restart: "no"
+    mem_limit: 64m
+    cpus: 0.25
+    entrypoint: ["/bin/bash", "/opt/registry/registry_init.sh"]
+    environment:
+      REGISTRY_URL: http://schema-registry:8080
+    volumes:
+      - ./scripts/registry_init.sh:/opt/registry/registry_init.sh:ro
+    depends_on:
+      schema-registry:
+        condition: service_healthy
+    networks:
+      - default
+
   # ── WP 04 ── Data quality: a SECOND, independent consumer group ───────────────
   # Reads the same topics as the audit sink without any coordination with it: each
   # group has its own offsets, so stopping one never affects the other.
@@ -259,6 +313,7 @@ services:
     environment:
       KAFKA_BOOTSTRAP: kafka:9092
       DQ_BATCH_SIZE: ${DQ_BATCH_SIZE:-500}
+      SCHEMA_REGISTRY_URL: http://schema-registry:8080/apis/ccompat/v7
       DQ_DEBUG_DELAY_MS: ${DQ_DEBUG_DELAY_MS:-0}
       DQ_LOG_EVENTS: ${DQ_LOG_EVENTS:-0}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}

@@ -18,6 +18,7 @@ from psycopg import errors as pg_errors
 from psycopg.types.json import Jsonb
 
 from qp_common.envelope import Envelope
+from qp_common.errors import TransientError
 
 log = logging.getLogger(__name__)
 
@@ -31,10 +32,6 @@ INSERT INTO audit.events (
 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT DO NOTHING
 """
-
-
-class TransientError(Exception):
-    """Retry later, do not commit, do not dead-letter."""
 
 
 @dataclass(frozen=True)

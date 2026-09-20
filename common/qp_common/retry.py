@@ -2,6 +2,11 @@
 
 import random
 from collections.abc import Callable
+from typing import Any, TypeVar
+
+from .errors import Shutdown, TransientError
+
+T = TypeVar("T")
 
 
 class Backoff:
@@ -30,3 +35,24 @@ class Backoff:
     @property
     def attempts(self) -> int:
         return self._attempt
+
+
+def retry_transient(
+    action: Callable[[], T],
+    stop: Any,
+    on_error: Callable[[TransientError, float], None],
+) -> T:
+    """Run `action`, retrying on TransientError with exponential backoff.
+
+    `stop` is a GracefulStop: if a stop is requested while waiting, raise Shutdown
+    so the caller leaves WITHOUT committing (the batch is simply re-read later).
+    """
+    backoff = Backoff()
+    while True:
+        try:
+            return action()
+        except TransientError as exc:
+            delay = backoff.next_delay()
+            on_error(exc, delay)
+            if stop.sleep(delay):
+                raise Shutdown from exc

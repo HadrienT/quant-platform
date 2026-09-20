@@ -1,5 +1,6 @@
 # Runtime dependencies of audit-sink. Freeze with:  pip-compile sink/requirements.in
 confluent-kafka
+fastavro
 jsonschema
 prometheus-client
 psycopg[binary]

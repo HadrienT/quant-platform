@@ -12,6 +12,7 @@ class Config:
     batch_size: int = 500
     batch_timeout_s: float = 1.0
     metrics_port: int = 9109
+    schema_registry_url: str = ""
     window_s: int = 900
     log_level: str = "INFO"
     # Test hooks (crash test): pause AFTER processing a batch and BEFORE committing it,
@@ -31,6 +32,7 @@ class Config:
             batch_size=int(e.get("DQ_BATCH_SIZE", cls.batch_size)),
             batch_timeout_s=int(e.get("DQ_BATCH_TIMEOUT_MS", "1000")) / 1000,
             metrics_port=int(e.get("DQ_METRICS_PORT", cls.metrics_port)),
+            schema_registry_url=e.get("SCHEMA_REGISTRY_URL", ""),
             window_s=int(e.get("DQ_WINDOW_S", cls.window_s)),
             log_level=e.get("LOG_LEVEL", cls.log_level),
             debug_delay_s=int(e.get("DQ_DEBUG_DELAY_MS", "0")) / 1000,

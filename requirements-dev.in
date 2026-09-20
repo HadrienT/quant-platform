@@ -4,6 +4,7 @@
 -r sink/requirements.in
 -r data_quality/requirements.in
 black
+confluent-kafka[schemaregistry]
 pip-tools
 pytest
 shellcheck-py
