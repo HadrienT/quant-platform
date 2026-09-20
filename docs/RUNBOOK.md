@@ -80,7 +80,27 @@ utilise son spool local. Rien ici ne doit devenir un point de défaillance du si
 d'audit) sur le modèle de `quant-modeling-backup.timer`. Cette section sera
 complétée avec la procédure de restauration testée.
 
-## 6. Vérifier la santé
+## 6. Kafka (lot 01)
+
+| Quoi | Comment |
+|---|---|
+| Créer / aligner les topics | automatique à chaque `up` (service `topics-init`) ; à la main : `docker compose run --rm topics-init` |
+| Voir ce que fait `topics.sh` | il affiche `created`, `altered`, `REFUSED`, et `topics: changed=N` (0 = rien à faire) |
+| Test de fumée | `scripts/smoke.sh` (produit, relit, compare ; vérifie aussi que l'auto-création est coupée) |
+| Console AKHQ | `http://127.0.0.1:8181` — depuis Windows : `ssh -L 8181:127.0.0.1:8181 <serveur>` puis navigateur sur `localhost:8181` |
+| Décrire les topics | `docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --describe` |
+| Consommer à la main | `docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic qm.audit.valuation.v1 --from-beginning --max-messages 5` |
+
+- Kafka n'a **qu'un broker, facteur de réplication 1 : pas de haute disponibilité**
+  (ADR-008). Si le volume `kafka-data` est perdu, les messages non encore lus par le
+  puits sont perdus ; ce qui est déjà en base d'audit reste.
+- Un topic ne peut pas voir son nombre de partitions **réduit**. Si `topics-init`
+  affiche `REFUSED`, c'est que le fichier demande moins de partitions que le broker :
+  créer un topic `…v<N+1>` (règle du contrat) plutôt que de modifier l'existant.
+- Depuis l'hôte, un client Kafka se connecte sur `127.0.0.1:9094` (listener
+  `EXTERNAL`) ; depuis un conteneur du réseau `dataplatform`, sur `kafka:9092`.
+
+## 7. Vérifier la santé
 
 ```bash
 ./scripts/make.sh                        # (dev) lint + validation + tests

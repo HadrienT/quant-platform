@@ -3,7 +3,118 @@
 # Nothing here is published outside 127.0.0.1. Kafka and the audit database are
 # reachable only through the external `dataplatform` network, by container name.
 # Services are added lot by lot (see blueprint/README.md).
+#
+# Networks: `dataplatform` (external, shared with the other projects) carries only
+# what other projects must reach (kafka, later qm-audit and the OTel collector).
+# Everything else stays on this project's private `default` network.
 name: quant-platform
+
+x-topics-env: &kafka-tools-env
+  # Kafka CLI tools default to a heap sized from the machine's RAM.
+  KAFKA_HEAP_OPTS: -Xmx128m -Xms32m
+
+services:
+  # ── WP 01 ── Kafka (single KRaft node: broker + controller, no ZooKeeper) ────
+  kafka:
+    image: apache/kafka:4.1.1
+    container_name: kafka
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 2
+    environment:
+      # The image reads CLUSTER_ID (not KAFKA_CLUSTER_ID) to format the log dir.
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:?run scripts/init_env.sh}
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # Two client listeners: a container reaches the broker as kafka:9092; a
+      # client on the host reaches it as 127.0.0.1:9094. A broker tells clients
+      # the address to reconnect to (advertised listener), and that address must
+      # be resolvable FROM THE CLIENT — hence one listener per vantage point.
+      KAFKA_LISTENERS: INTERNAL://:9092,EXTERNAL://:9094,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://127.0.0.1:${QP_KAFKA_PORT:-9094}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      # Topics are code (topics/topics.yml): a producer with a typo must fail, not
+      # silently create a ghost topic.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      # One broker, so replication factor 1: NO high availability (ADR-008).
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      # Without a cap the JVM takes a fraction of the shared machine's RAM.
+      KAFKA_HEAP_OPTS: ${KAFKA_HEAP_OPTS:--Xmx512m -Xms512m}
+    ports:
+      - "127.0.0.1:${QP_KAFKA_PORT:-9094}:9094"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - default
+      - dataplatform
+    healthcheck:
+      # The check spawns its own JVM inside the 1 GiB limit: give it a tiny heap.
+      test:
+        - CMD-SHELL
+        - >-
+          KAFKA_HEAP_OPTS='-Xmx64m -Xms32m'
+          /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1
+      interval: 10s
+      timeout: 20s
+      retries: 12
+      start_period: 20s
+
+  # One-shot: aligns the broker with topics/topics.yml (idempotent), then exits.
+  topics-init:
+    image: apache/kafka:4.1.1
+    container_name: qp-topics-init
+    restart: "no"
+    mem_limit: 384m
+    cpus: 1
+    entrypoint: ["/bin/bash", "/opt/topics/topics.sh"]
+    environment:
+      <<: *kafka-tools-env
+      BOOTSTRAP: kafka:9092
+      TOPICS_FILE: /opt/topics/topics.yml
+    volumes:
+      - ./scripts/topics.sh:/opt/topics/topics.sh:ro
+      - ./topics/topics.yml:/opt/topics/topics.yml:ro
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - default
+
+  # Console to look inside Kafka: topics, messages, consumer groups, lag.
+  akhq:
+    image: tchiotludo/akhq:0.26.0
+    container_name: akhq
+    restart: unless-stopped
+    mem_limit: 320m
+    cpus: 1
+    environment:
+      MICRONAUT_CONFIG_FILES: /app/config/application.yml
+      JAVA_OPTS: -Xmx128m -Xms64m
+    ports:
+      - "127.0.0.1:${QP_AKHQ_PORT:-8181}:8080"
+    volumes:
+      - ./akhq/application.yml:/app/config/application.yml:ro
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:28081/health >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  kafka-data:
 
 networks:
   dataplatform:

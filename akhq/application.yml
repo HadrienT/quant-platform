@@ -1,0 +1,16 @@
+# AKHQ — read/inspect console for the platform's Kafka. Bound to 127.0.0.1 by the
+# compose file; expose it publicly only behind Cloudflare Access.
+akhq:
+  connections:
+    quant-platform:
+      properties:
+        bootstrap.servers: kafka:9092
+  # Read-only by default is not offered by AKHQ without auth; the port is
+  # loopback-only, so the console is not reachable off this machine.
+micronaut:
+  server:
+    port: 8080
+endpoints:
+  health:
+    enabled: true
+    sensitive: false

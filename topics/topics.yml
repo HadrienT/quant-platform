@@ -1,0 +1,27 @@
+# Kafka topics, as code (contract: docs/contract.md §2). Applied idempotently by
+# scripts/topics.sh (compose service `topics-init`, runs on every `up`).
+#
+# One topic per flat mapping on a single line — scripts/topics.sh parses exactly
+# that shape, so keep it. Convention: qm.<domain>.<subject>.v<N>. A breaking
+# change of a payload is a NEW topic (…v2), never a mutation of …v1.
+#
+# Partitions: 3 on the keyed topics and 1 elsewhere is a LEARNING choice, not a
+# volume requirement (order per key, spreading across a consumer group, and
+# rebalancing vs total order). Kafka can raise a partition count but never
+# reduce it; scripts/topics.sh refuses to try.
+#
+# Retention: Kafka is not the archive — Postgres is. 90 days is enough to replay
+# and rebuild. retention_ms: 90 d = 7776000000 · 30 d = 2592000000 · 14 d = 1209600000.
+topics:
+  # key: username (or anon:<hash of the ip>) — order of one user's actions.
+  - { name: qm.audit.valuation.v1, partitions: 3, retention_ms: 7776000000, cleanup_policy: delete }
+  # key: username (or anon:<hash of the ip>)
+  - { name: qm.audit.auth.v1, partitions: 3, retention_ms: 7776000000, cleanup_policy: delete }
+  # key: kind
+  - { name: qm.dataquality.fallback.v1, partitions: 1, retention_ms: 7776000000, cleanup_policy: delete }
+  # key: route — bulky, little audit value, hence 14 days.
+  - { name: qm.http.access.v1, partitions: 3, retention_ms: 1209600000, cleanup_policy: delete }
+  # key: username — latency and script validity, NOT the content by default.
+  - { name: qm.assistant.chat.v1, partitions: 1, retention_ms: 2592000000, cleanup_policy: delete }
+  # key: source_topic — messages a consumer rejected (headers dlq.* say why).
+  - { name: qm.dlq.v1, partitions: 1, retention_ms: 2592000000, cleanup_policy: delete }
