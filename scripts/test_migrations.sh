@@ -109,10 +109,12 @@ ev pricing.valuation u '{"product":"autocall","engine":{"name":"mc"},"model":{"n
 ev pricing.valuation u '{"product":"vanilla","engine":{"name":"analytic"},"model":{"name":"bs"},"timing":{"duration_ms":3},"market_inputs":[{"status":"observed"},{"status":"stale"}]}'
 ev pricing.valuation u '{"product":"vanilla","engine":{"name":"analytic"},"model":{"name":"bs"},"timing":{"duration_ms":"oops"},"market_inputs":[{"status":"observed"},{"status":"proxied"},{"status":"stale"}]}'
 ev pricing.valuation u '{"product":"vanilla","engine":{"name":"analytic"},"model":{"name":"bs"},"timing":{"duration_ms":5},"market_inputs":[{"status":"observed"}]}'
+ev pricing.valuation u '{"product":"vanilla","engine":{"name":"analytic"},"model":{"name":"bs"},"timing":{"duration_ms":2},"market_inputs":[]}'
+ev pricing.valuation u '{"product":"vanilla","engine":{"name":"analytic"},"model":{"name":"bs"},"timing":{"duration_ms":1}}'
 expect "v_fallbacks_daily counts per kind" "$(admin -c "SELECT string_agg(kind || '=' || events, ',' ORDER BY kind) FROM audit.v_fallbacks_daily")" "default_rate=2,stale_data=1"
 expect "v_login_failures_by_hash groups by hashed IP" "$(admin -c "SELECT string_agg(ip_hash || ':' || failures || ':' || distinct_usernames, ',' ORDER BY ip_hash) FROM audit.v_login_failures_by_hash")" "h1:2:2,h2:1:1"
-expect "v_slowest_valuations orders by duration and skips garbage" "$(admin -c "SELECT string_agg(product || ':' || duration_ms, ',' ORDER BY duration_ms DESC) FROM audit.v_slowest_valuations")" "autocall:412,vanilla:5,vanilla:3"
-expect "v_valuations_by_status: default/proxied = unobserved" "$(admin -c "SELECT string_agg(status || '=' || valuations, ',' ORDER BY status) FROM audit.v_valuations_by_status")" "observed=1,stale=1,unobserved=2"
+expect "v_slowest_valuations orders by duration and skips garbage" "$(admin -c "SELECT string_agg(product || ':' || duration_ms, ',' ORDER BY duration_ms DESC) FROM audit.v_slowest_valuations")" "autocall:412,vanilla:5,vanilla:3,vanilla:2,vanilla:1"
+expect "v_valuations_by_status: default/proxied = unobserved, none read = no_market_inputs" "$(admin -c "SELECT string_agg(status || '=' || valuations, ',' ORDER BY status) FROM audit.v_valuations_by_status")" "no_market_inputs=2,observed=1,stale=1,unobserved=2"
 
 echo "7. Hash chain: intact, then tampering is detected (0005)"
 ins() { # ins OFFSET [PAYLOAD_JSON] — one event of partition (chain-test, 0), inserted as the WRITER would

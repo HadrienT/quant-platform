@@ -202,7 +202,7 @@ Console* (BSL) ; *Kafka UI* (moins suivi).
    | `data.fallback` | `payload.kind` |
    | `pricing.valuation` | `payload.product`, `payload.engine.name`, `payload.model.name`, `payload.timing.duration_ms`, `payload.market_inputs[].status` (`observed`/`stale`/`proxied`/`default`) |
    | `auth.login_failed`, `auth.rate_limited` | `payload.ip_hash` (HMAC-SHA256 de l'IP) |
-   | `http.access` | `payload.route`, `payload.status` |
+   | `http.access` | `payload.route`, `payload.status_code` (corrigé, ADR-016 §3) |
 
    Un champ absent ne casse rien (les vues renvoient `NULL` ou ignorent la ligne),
    mais l'écart doit être levé par une issue croisée dans `quant-modeling`.
@@ -372,3 +372,33 @@ l'exercice 5 : ≈ 5 500 événements/s sans) ; à quelques événements par sec
 **Écarté.** *Chaîne calculée dans le sink* : état en mémoire à recharger à chaque affectation de
 partition, redélivrances à neutraliser, et le sink devrait pouvoir lire la table (droit `SELECT`
 que le contrat lui refuse). *Table de tête de chaîne mise à jour* : exigerait un `UPDATE`.
+
+---
+
+## ADR-016 — Alignement avec le producteur `quant-modeling` (issues #1, #2, #3)
+
+Le producteur est livré (`quant-modeling` PR #67, son ADR-011) ; trois écarts relevés
+en le branchant sont tranchés ici.
+
+**Décisions.**
+
+1. **Une valorisation sans `market_inputs` a son propre statut, `no_market_inputs`**
+   (issue #1). Le producteur ne range dans `market_inputs` que les données **lues** dans
+   la base de marché ; un pricing sur des paramètres saisis par l'utilisateur a une
+   liste vide. La vue `v_valuations_by_status` (0004) le classait `observed` et
+   `data-quality` le comptait `clean` : presque toutes les valorisations paraissaient
+   pricées sur données observées. Migration `0006` (la 0004 n'est pas modifiée) et
+   qualité `no_market_inputs` dans `qp_dq_valuations_total` ; la raison de rejet
+   `no_inputs` de `qp_dq_skipped_total` disparaît, ces messages étant désormais comptés.
+2. **Le nom de service des logs vient d'abord d'un label de conteneur `service.name`**
+   (issue #2), puis de `com.docker.compose.service` comme avant (ADR-012 §2). Le service
+   compose de prod de l'API s'appelle `app` alors que ses traces portent
+   `quant-modeling-api` : le lien trace → logs de Tempo ne trouvait rien. Renommer le
+   service côté producteur recréerait le conteneur en ligne et toucherait son
+   `deploy.sh` ; un label dédié ne coûte rien et sert à tout futur producteur.
+3. **`http.access` porte `payload.status_code`, pas `payload.status`** (issue #3) :
+   l'hypothèse de l'ADR-011 §6 est corrigée ci-dessous. Aucune vue ne lisait ce champ.
+   Les autres hypothèses de l'ADR-011 §6 sont confirmées par le producteur.
+
+**Écarté.** *Compter les valorisations sans données comme `clean`* : c'est le biais
+corrigé ; *renommer le service compose de l'API* : voir 2.

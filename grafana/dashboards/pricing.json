@@ -259,7 +259,7 @@
     {
       "type": "timeseries",
       "title": "Quality of market inputs per day",
-      "description": "unobserved = at least one input is default or proxied; stale = a stale input; observed = all inputs observed.",
+      "description": "unobserved = at least one input is default or proxied; stale = a stale input; observed = all inputs observed; no_market_inputs = the pricing read no market data (parameters typed in by the user).",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "qm-audit"

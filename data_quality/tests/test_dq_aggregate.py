@@ -79,11 +79,16 @@ def test_input_statuses_are_counted_and_unknown_ones_are_bucketed(agg):
     assert value("qp_dq_market_inputs_total", status="unknown") == u0 + 1
 
 
-def test_valuation_without_inputs_is_not_flagged_degraded(agg):
-    s0 = value("qp_dq_skipped_total", reason="no_inputs")
+def test_valuation_without_market_inputs_is_its_own_quality(agg):
+    """A pricing on typed-in parameters read no market data: counting it `clean`
+    would overstate the share of valuations on observed data (issue #1)."""
+    n0 = value("qp_dq_valuations_total", quality="no_market_inputs")
+    c0 = value("qp_dq_valuations_total", quality="clean")
     d0 = value("qp_dq_valuations_total", quality="degraded")
     agg.observe(VALUATION_TOPIC, envelope("pricing.valuation", {}))
-    assert value("qp_dq_skipped_total", reason="no_inputs") == s0 + 1
+    agg.observe(VALUATION_TOPIC, envelope("pricing.valuation", {"market_inputs": []}))
+    assert value("qp_dq_valuations_total", quality="no_market_inputs") == n0 + 2
+    assert value("qp_dq_valuations_total", quality="clean") == c0
     assert value("qp_dq_valuations_total", quality="degraded") == d0
 
 
