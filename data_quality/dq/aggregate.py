@@ -5,7 +5,10 @@ Vocabulary of the desks for the quality of a market input (producer's payload):
   stale     read, but too old
   proxied   replaced by a neighbouring input
   default   a fallback constant
-A valuation is `degraded` when at least one of its inputs is NOT observed.
+A valuation is `degraded` when at least one of its inputs is NOT observed, and
+`no_market_inputs` when it read none — a pricing on parameters the user typed
+in (spot, vol…) says nothing about market-data quality, so it is neither clean
+nor degraded (quant-modeling ADR-011 §4; issue #1).
 
 Cardinality (CLAUDE.md principle 8): label values are drawn from CLOSED sets. A
 `kind` or `status` the producer invents later maps to `other` / `unknown` instead
@@ -37,7 +40,7 @@ VALUATION_TOPIC = "qm.audit.valuation.v1"
 FALLBACKS = Counter("qp_dq_fallbacks_total", "Fallback events, by kind", ["kind"])
 VALUATIONS = Counter(
     "qp_dq_valuations_total",
-    "Valuations, `degraded` when at least one input is not observed",
+    "Valuations: clean (every input observed), degraded (one is not), no_market_inputs (none read)",
     ["quality"],
 )
 INPUTS = Counter(
@@ -60,11 +63,11 @@ def _init_series() -> None:
     an alert on it would never fire."""
     for kind in (*KNOWN_KINDS, "other"):
         FALLBACKS.labels(kind).inc(0)
-    for quality in ("clean", "degraded"):
+    for quality in ("clean", "degraded", "no_market_inputs"):
         VALUATIONS.labels(quality).inc(0)
     for status in (*INPUT_STATUSES, "unknown"):
         INPUTS.labels(status).inc(0)
-    for reason in ("invalid_envelope", "unexpected_type", "no_inputs"):
+    for reason in ("invalid_envelope", "unexpected_type"):
         SKIPPED.labels(reason).inc(0)
 
 
@@ -114,8 +117,7 @@ class Aggregator:
     def _valuation(self, env: Envelope) -> None:
         inputs = env.payload.get("market_inputs")
         if not isinstance(inputs, list) or not inputs:
-            SKIPPED.labels("no_inputs").inc()
-            VALUATIONS.labels("clean").inc()
+            VALUATIONS.labels("no_market_inputs").inc()
             return
         degraded = False
         for item in inputs:

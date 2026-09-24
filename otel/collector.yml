@@ -22,8 +22,12 @@ receivers:
         endpoint: 0.0.0.0:4318
 
   # Container logs, read straight from Docker's json-file logs (mounted read-only).
-  # The service name comes from the `com.docker.compose.service` label that the
-  # compose `logging.options.labels` setting copies into each line's `attrs`.
+  # The service name comes from the container labels that the compose
+  # `logging.options.labels` setting copies into each line's `attrs`: a
+  # `service.name` label if the container has one — so that a producer whose
+  # compose service is named differently (quant-modeling's `app`) files its
+  # logs under the same name as its traces, and Tempo's trace → logs link works
+  # (ADR-016) — otherwise `com.docker.compose.service`.
   filelog/docker:
     include: [/var/lib/docker/containers/*/*-json.log]
     start_at: end
@@ -41,9 +45,15 @@ receivers:
         from: attributes.stream
         to: attributes["log.iostream"]
       - type: move
+        from: attributes.attrs["service.name"]
+        to: resource["service.name"]
+        if: 'attributes.attrs != nil and attributes.attrs["service.name"] != nil'
+      - type: move
         from: attributes.attrs["com.docker.compose.service"]
         to: resource["service.name"]
-        if: 'attributes.attrs != nil and attributes.attrs["com.docker.compose.service"] != nil'
+        if: >-
+          attributes.attrs != nil and attributes.attrs["com.docker.compose.service"] != nil
+          and resource["service.name"] == nil
       - type: remove
         field: attributes.time
       - type: remove

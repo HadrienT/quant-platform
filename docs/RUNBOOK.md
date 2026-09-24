@@ -177,9 +177,12 @@ Save to file* et remplacer le JSON dans `grafana/dashboards/`, puis commiter. Un
 de bord créé à la main et non rapatrié disparaît au prochain `down -v`.
 
 **Un projet qui rejoint la plateforme** (l'API) : rejoindre le réseau `dataplatform`,
-envoyer l'OTLP à `otel-collector:4317`, et mettre dans son compose
-`logging: {driver: json-file, options: {labels: com.docker.compose.service}}` pour que ses
-logs portent un `service_name`.
+envoyer l'OTLP à `otel-collector:4317` (gRPC) ou `:4318` (HTTP), et mettre dans son compose
+`logging: {driver: json-file, options: {labels: "service.name,com.docker.compose.service"}}`
+pour que ses logs portent un `service_name`. Si le nom du service compose n'est pas celui
+de ses traces (`OTEL_SERVICE_NAME`), poser aussi sur le conteneur le label
+`service.name: <même nom que les traces>` : il prime, et le lien trace → logs de Grafana
+retrouve les lignes (ADR-016).
 
 **Règle de cardinalité.** Jamais un ticker, un utilisateur, un `request_id` ou une IP
 comme étiquette : le Collector les supprime des métriques, et
