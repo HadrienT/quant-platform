@@ -143,9 +143,7 @@ qu'il n'existe pas, le dire au mainteneur plutôt que d'improviser.
 
 ## Conventions
 
-- **Conversation avec le mainteneur : en français.** Code, identifiants,
-  commentaires, messages de commit : en anglais. `blueprint/` et `docs/` sont
-  en français.
+- **Language: English by default.** Everything you produce is in English: code, identifiers, comments, commit messages, PRs, issues, documentation and interface text. The only exception is the conversation: reply in the language the maintainer writes in, so in French when they write in French. `blueprint/` and `docs/` are historically in French: new content there is in English too.
 - **Commits : passer par une branche, jamais directement sur `main`** (le tout
   premier commit du dépôt, qui pose la documentation, est la seule exception).
   Terminer chaque message de commit par la ligne `Co-Authored-By` fournie par la
