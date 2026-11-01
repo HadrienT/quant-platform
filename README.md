@@ -4,6 +4,8 @@ A self-hosted event bus, append-only audit trail and observability stack for the
 quant projects running on one server. Its first producer is
 [quant-modeling](https://github.com/HadrienT/quant-modeling).
 
+**[How it works: interactive map](https://hadrient.github.io/atlas-pages/quant-platform/)**
+
 [![CI](https://github.com/HadrienT/quant-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/HadrienT/quant-platform/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Kafka](https://img.shields.io/badge/Kafka-KRaft-231F20?logo=apachekafka&logoColor=white)
