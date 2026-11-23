@@ -17,6 +17,12 @@ topics:
   - { name: qm.audit.valuation.v1, partitions: 3, retention_ms: 7776000000, cleanup_policy: delete }
   # key: username (or anon:<hash of the ip>)
   - { name: qm.audit.auth.v1, partitions: 3, retention_ms: 7776000000, cleanup_policy: delete }
+  # key: username (or anon:<hash of the ip>) — one xVA run, enough to replay it (ADR-019).
+  - { name: qm.audit.xva.v1, partitions: 3, retention_ms: 7776000000, cleanup_policy: delete }
+  # key: username (or anon:<hash of the ip>) — one backtest run (quant-modeling WP 24).
+  - { name: qm.audit.backtest.v1, partitions: 3, retention_ms: 7776000000, cleanup_policy: delete }
+  # key: username — admin actions (site pages); rare, so one partition (total order).
+  - { name: qm.audit.admin.v1, partitions: 1, retention_ms: 7776000000, cleanup_policy: delete }
   # key: kind
   - { name: qm.dataquality.fallback.v1, partitions: 1, retention_ms: 7776000000, cleanup_policy: delete }
   # key: route — bulky, little audit value, hence 14 days.
