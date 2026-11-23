@@ -6,6 +6,9 @@
 #   scripts/check_labels.sh --self-test    # proves the matcher itself catches offenders
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib_prod.sh
+source scripts/lib_prod.sh
+require_prod_worktree
 
 PROM_URL="${PROM_URL:-http://127.0.0.1:${QP_PROMETHEUS_PORT:-9091}}"
 LOKI_URL="${LOKI_URL:-http://127.0.0.1:${QP_LOKI_PORT:-3101}}"

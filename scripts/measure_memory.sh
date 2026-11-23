@@ -6,6 +6,9 @@
 #   scripts/measure_memory.sh [DURATION_S]      default 240
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib_prod.sh
+source scripts/lib_prod.sh
+require_prod_worktree
 # shellcheck source=scripts/lib_test.sh
 source scripts/lib_test.sh
 

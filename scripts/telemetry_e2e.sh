@@ -6,6 +6,9 @@
 #      when it restarts.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib_prod.sh
+source scripts/lib_prod.sh
+require_prod_ack "stops audit-sink and writes test events into the audit trail"
 # shellcheck source=scripts/lib_test.sh
 source scripts/lib_test.sh
 

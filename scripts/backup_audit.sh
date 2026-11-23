@@ -9,6 +9,9 @@
 # deploy/quant-platform-backup.timer.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib_prod.sh
+source scripts/lib_prod.sh
+require_prod_worktree
 
 DEST="${1:-${BACKUP_DEST:-$HOME/backups/quant-platform}}"
 KEEP="${BACKUP_KEEP:-14}"

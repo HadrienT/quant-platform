@@ -462,6 +462,60 @@ name, which is why the name has to be long and random.
 
 ---
 
+## ADR-018 — One Docker stack, production only; scripts refuse to run elsewhere
+
+Closes issue #13.
+
+**Context.** `docker-compose.yml` pins the project name (`name: quant-platform`) and every
+`container_name`, so Compose run from **any** checkout drives the same containers and the
+same volumes, with that checkout's `.env`. The "development stack" that CLAUDE.md and the
+integration scripts assumed never existed. On 2026-11-23, `deploy.sh` run from
+`~/quant-platform` recreated production with the development secrets: Kafka refused to start
+(cluster id mismatch), and `audit-sink`, `data-quality` and `akhq` stayed down until a
+redeploy from `~/quant-platform-prod`. The integration tests had also pushed a test event
+into the production audit trail.
+
+**Decision (option 1 + option 3 of the issue).**
+
+1. **No development stack.** The only stack is production, driven from
+   `~/quant-platform-prod` (`QP_PROD_DIR` overrides the path). `~/quant-platform` is for
+   editing, `scripts/make.sh` and `pytest` only. `scripts/up.sh`, which only existed for the
+   imaginary development stack, is removed: `deploy.sh` is the single way to start or
+   update the platform.
+2. **Guard in code, not in memory.** `scripts/lib_prod.sh` (and `scripts/prod_guard.py`
+   for Python) provides `require_prod_worktree`: every script that runs Compose or reads
+   `.env` exits with code 2 and prints the right command when its checkout is not the
+   production worktree. It compares the **resolved** paths, so a symlink cannot fool it.
+3. **Explicit consent for tests with side effects.** Scripts that stop or recreate a
+   production service, or write test events into the append-only audit trail (`smoke.sh`,
+   `crash_test.sh`, `audit_e2e.sh`, `dq_*`, `telemetry_e2e.sh`, `alert_e2e.sh`,
+   `ntfy_e2e.sh`, `registry_test.py`), also require `QP_PROD_TESTS=1`. Stopping the sink
+   or `data-quality` is safe (Kafka keeps the messages, the API spools if Kafka is down),
+   but it should never happen by accident. Their test rows stay forever, under tagged
+   usernames (`crash-…`, `smoke`, …).
+4. **Destructive work goes to the lab** (`scripts/lab_up.sh`, WP 06): separate project,
+   no shared network, no published port. `down -v`, configuration experiments and broker
+   kills happen there.
+5. **Consequence:** a branch is tested against the real stack only once merged and
+   deployed. Unit tests and `make.sh` run on the branch; anything with Kafka or Postgres
+   runs on `main`, or in the lab.
+
+**Rejected.** *A real development stack* (option 2): a second Kafka, Postgres, Grafana,
+Loki, Tempo and Prometheus would cost about the platform's own RAM on a server shared with
+AAD runs of ~20 GB, and the `dataplatform` aliases (`kafka`, `qm-audit`) would collide, so
+the dev stack could not be reached the way the API reaches production anyway. *A per-checkout
+`COMPOSE_PROJECT_NAME`*: with fixed container names, Compose would fail with a name
+conflict (safe, but cryptic), and `init_env.sh --sync` could copy the variable into the
+production `.env`. *Documentation only*: that is what failed on 2026-11-23.
+
+**Learning note.** Docker Compose identifies "its" containers through the label
+`com.docker.compose.project`, not through the directory it is run from. Two checkouts with
+the same project name are therefore the same deployment, whatever their files say:
+`docker inspect <c> --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}'`
+shows which checkout last created a container.
+
+---
+
 ## ADR-019 — Topics for `xva.valuation`, `backtest.run` and `admin.site_pages`
 
 Closes issue #11 (counterpart of HadrienT/quant-modeling#344, producer PR

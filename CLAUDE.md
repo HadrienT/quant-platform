@@ -97,8 +97,7 @@ Only create a directory when a work package fills it.
 | `scripts/bootstrap.sh`: creates `.venv` with the pinned tooling (`requirements-dev.txt`) | dev |
 | `scripts/make.sh`: compose + Docker rules + yamllint + shellcheck + black + pytest | all |
 | `scripts/init_env.sh` (`--sync`): creates `.env` with random secrets / adds missing variables | 00 |
-| `scripts/up.sh`: dev, recomputes the configuration hashes, `up -d --wait` | 04 |
-| `scripts/deploy.sh`: **from `~/quant-platform-prod` only** | 00 |
+| `scripts/deploy.sh`: **from `~/quant-platform-prod` only** (the only way to start or update the stack) | 00 |
 | `scripts/smoke.sh`: produces, reads back, compares; then Kafka → sink → Postgres | 01, 02 |
 | `scripts/crash_test.sh`, `test_privileges.sh`, `audit_e2e.sh`, `test_migrations.sh`: criteria of work package 02 | 02 |
 | `python3 scripts/verify_chain.py`: verifies the audit hash chain | 02 |
@@ -109,9 +108,14 @@ Only create a directory when a work package fills it.
 | `pytest`: unit tests (sink, `data-quality`, shared code) | 02+ |
 | `pip-compile <file>.in`: regenerates the pinned `requirements*.txt` | 02 |
 
-Integration scripts need the **development** stack running. The audit database is
-append-only, so their test rows stay there (`docker compose down -v` resets the dev
-stack; never on production).
+**There is no development stack (ADR-018).** `docker-compose.yml` pins the project and
+container names, so Compose from any checkout drives **production**. Every script that runs
+Compose or reads `.env` refuses to run outside `~/quant-platform-prod` (`scripts/lib_prod.sh`,
+`scripts/prod_guard.py`); the ones that stop services or write test events into the audit
+trail also need `QP_PROD_TESTS=1`, and **only with the maintainer's OK**. Their test rows stay
+in the append-only audit trail for good. From `~/quant-platform`: editing, `make.sh` and
+`pytest` only; never a bare `docker compose up`/`down` there. Destructive work goes to the
+lab (`lab_up.sh`).
 
 ## Tracking work: GitHub Issues, no handoff markdown
 

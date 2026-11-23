@@ -7,6 +7,9 @@
 # (WP 02) it is also archived — the audit trail is append-only, so it stays.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib_prod.sh
+source scripts/lib_prod.sh
+require_prod_ack "writes a smoke.test event into the audit trail"
 
 TOPIC="qm.audit.valuation.v1"
 KEY="smoke"
