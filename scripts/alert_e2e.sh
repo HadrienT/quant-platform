@@ -3,9 +3,10 @@
 # data-quality → Prometheus → the Grafana rule "Live fallback", which must go
 # FIRING, POST a notification, then return to NORMAL and POST a "resolved" one.
 #
-# The notification is caught by a throw-away local webhook receiver, so this proves
-# Grafana's delivery whatever real channel (ntfy, e-mail bridge…) ALERT_WEBHOOK_URL
-# points at in production. Takes about 6-8 minutes: the rule looks back 3 minutes.
+# The notification is caught by a throw-away local webhook receiver standing in for
+# the ntfy server (NTFY_URL), so this proves Grafana's delivery without pushing to a
+# phone; scripts/ntfy_e2e.sh covers the real ntfy leg. Takes about 6-8 minutes: the
+# rule looks back 3 minutes.
 #
 #   scripts/alert_e2e.sh
 set -euo pipefail
@@ -65,7 +66,7 @@ class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 http.server.HTTPServer(("0.0.0.0", 8080), H).serve_forever()
 ' >/dev/null
-ALERT_WEBHOOK_URL="http://$PROBE:8080/" docker compose up -d --no-deps --wait grafana >/dev/null
+NTFY_URL="http://$PROBE:8080/topic" docker compose up -d --no-deps --wait grafana >/dev/null
 
 echo "1. Baseline: the rule is normal"
 if wait_state inactive 120; then ok "rule '$RULE' is Normal before the fallback"; else ko "rule is '$(rule_state)', expected inactive"; fi

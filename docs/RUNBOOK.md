@@ -247,17 +247,31 @@ touche pas l'autre. Il expose `/metrics` (scruté par Prometheus) : replis par `
 valorisations `clean`/`degraded` (au moins un input non `observed`), statut de chaque input,
 et l'instant du dernier événement par source (un producteur muet = cette valeur ne bouge plus).
 
-**Alertes** : `alerts/rules.yml` (7 règles, **chaque seuil justifié en commentaire**),
+**Alertes** : `alerts/rules.yml` (8 règles, **chaque seuil justifié en commentaire**),
 `alerts/contact-points.yml`, `alerts/policies.yml`, chargées par Grafana au démarrage. Pour
 recalibrer un seuil : modifier le fichier, puis `scripts/up.sh` (dev) ou `scripts/deploy.sh`
 (prod) — jamais dans l'interface.
 
-**Canal de notification — pas encore choisi.** Les alertes passent en *firing* dans Grafana
-(*Alerting → Alert rules*) mais n'avertissent personne tant que `ALERT_WEBHOOK_URL` est vide.
-Quand tu auras choisi (ntfy auto-hébergé recommandé : notification native sur Windows et
-téléphone) : ajouter le service au compose, mettre l'URL dans `.env`, `scripts/deploy.sh`.
-Le point de contact est un webhook générique : ntfy, un pont Pushover ou un webhook de chat
-fonctionnent sans changer le code.
+**Notification channel: ntfy (ADR-017).** Grafana posts each alert to an ntfy topic on
+`ntfy.sh`, which pushes it to every device subscribed to that topic (phone app, Windows
+browser or app). Push title `🚨 [FIRING:1] <rule>` then `✅ [RESOLVED] <rule>`, body = the
+rule's summary and description. With `NTFY_URL` empty (the development default), alerts
+fire in Grafana (*Alerting → Alert rules*) but notify nobody.
+
+Setting it up in production (once):
+
+1. Generate a topic name; it is the only secret, so keep it long and random:
+   `echo qp-alerts-$(openssl rand -hex 16)`
+2. Subscribe to it on `ntfy.sh` in the ntfy app (Android/iOS) and/or at
+   `https://ntfy.sh/app` in the Windows browser (allow its notifications).
+3. In `~/quant-platform-prod/.env`: `NTFY_URL=https://ntfy.sh/<topic>` (this file is not in
+   git, so editing it there is expected). Then `./scripts/deploy.sh`: Compose sees the
+   new value and recreates Grafana only.
+4. `scripts/ntfy_e2e.sh` from `~/quant-platform-prod`: a test push must arrive on your
+   devices, and the script checks it on the topic.
+
+To rotate a leaked topic: new name, resubscribe, steps 3 and 4. To silence alerts for a
+while, mute the topic in the app; to stop them, empty `NTFY_URL` and redeploy.
 
 **Changer une configuration** (`prometheus/`, `loki/`, `tempo/`, `otel/`, `grafana/`,
 `alerts/`, `akhq/`) : `deploy.sh` (ou `scripts/up.sh` en dev) hache ces fichiers et recrée
@@ -267,6 +281,9 @@ ne le ferait pas : Docker ne voit pas qu'un fichier monté a changé.
 **Tests** (pile lancée) : `scripts/dq_crash_test.sh`, `scripts/dq_independence_test.sh`,
 `scripts/alert_e2e.sh` (≈ 8 min : provoque un repli, attend *firing* puis *normal*, et vérifie
 que Grafana poste les notifications à un récepteur local jetable).
+`scripts/ntfy_e2e.sh` (≈ 30 s): Grafana's real contact point sends a test alert to ntfy and
+the script reads it back from the topic; with `NTFY_URL` empty (dev) or `--throwaway`, on a
+random topic nobody follows.
 
 **Mesure de fin de chantier** (avec `quant-modeling`) : `audit.v_fallbacks_daily` doit être
 **vide** sur une semaine de trafic normal, une fois les replis retirés des anciens endpoints

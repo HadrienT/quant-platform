@@ -50,6 +50,8 @@ notification qui joint réellement le mainteneur.
    comme *contact point* Grafana par webhook, avec l'application ou le navigateur
    ntfy côté Windows. **À confirmer avec le mainteneur avant de construire** ; il
    pourra préférer l'e-mail. Ne rien choisir sans son accord.
+   **Done (ADR-017):** ntfy through the public `ntfy.sh` server with a secret topic,
+   the setup the maintainer already uses for `RamTracker`; no container here.
 4. **Test de bout en bout** : un script provoque un repli (côté producteur ou par un
    événement injecté), vérifie que l'alerte passe à l'état *firing* puis revient à
    *normal*.
@@ -65,6 +67,8 @@ notification qui joint réellement le mainteneur.
   retard ; arrêter le sink n'affecte pas `data-quality`. Vérifié par script.
 - Provoquer un repli déclenche l'alerte et la **notification arrive
   réellement** sur le canal choisi ; l'arrêter l'éteint.
+  Verified in two halves: `scripts/alert_e2e.sh` (repli → *firing* → *resolved*,
+  local receiver) and `scripts/ntfy_e2e.sh` (contact point → ntfy → push).
 - Les alertes sont **rechargées depuis les fichiers** après `down -v && up -d`.
 - **Mesure de fin de chantier** : `v_fallbacks_daily` est **vide** sur une semaine de
   trafic normal, *une fois les replis retirés des anciens endpoints de*
@@ -82,5 +86,5 @@ notification qui joint réellement le mainteneur.
 ## Fichiers créés
 
 `data_quality/` (code, `requirements.in`/`.txt`, `Dockerfile`, tests), `alerts/*.yml`,
-`docker-compose.yml` (services `data-quality`, `ntfy` selon décision),
-`scripts/alert_e2e.sh`.
+`docker-compose.yml` (service `data-quality`; no `ntfy` service, see ADR-017),
+`scripts/alert_e2e.sh`, `scripts/ntfy_e2e.sh`.

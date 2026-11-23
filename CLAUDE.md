@@ -22,7 +22,7 @@ both repositories). **Work packages 00 to 06 are built** (see the table in
 [`blueprint/README.md`](blueprint/README.md)): foundations and deployment, Kafka,
 audit database and sink, telemetry, data quality and alerts, schema registry,
 exercise lab. The only **open** items are those each work package flags as depending
-on a third party: the notification channel (maintainer's choice, ADR-013), exposing
+on a third party: exposing
 Grafana through Cloudflare Access (manual action, `docs/RUNBOOK.md` §7), and the
 cross-tests with the `quant-modeling` API (work packages 18a–18e). Assumptions about
 producer payloads are in ADR-011 §6, to be confirmed on the `quant-modeling` side.
@@ -103,7 +103,7 @@ Only create a directory when a work package fills it.
 | `scripts/crash_test.sh`, `test_privileges.sh`, `audit_e2e.sh`, `test_migrations.sh`: criteria of work package 02 | 02 |
 | `python3 scripts/verify_chain.py`: verifies the audit hash chain | 02 |
 | `scripts/telemetry_e2e.sh`, `check_labels.sh`, `check_dashboards.py`, `measure_memory.sh` | 03 |
-| `scripts/dq_crash_test.sh`, `dq_independence_test.sh`, `alert_e2e.sh` | 04 |
+| `scripts/dq_crash_test.sh`, `dq_independence_test.sh`, `alert_e2e.sh`, `ntfy_e2e.sh` | 04 |
 | `.venv/bin/python scripts/registry_test.py` | 05 |
 | `scripts/lab_up.sh` / `lab_down.sh`: disposable lab (work package 06, never production) | 06 |
 | `pytest`: unit tests (sink, `data-quality`, shared code) | 02+ |
@@ -175,9 +175,9 @@ is authenticated).
   guessed; hence the explicit caps.
 - **Self-hosted, no cloud**: no managed service, no GCP.
 - **Notifications**: the maintainer works from a Windows client over Remote-SSH to this
-  headless server, and wants to be alerted (blocked, task finished) by a native
-  notification, which requires a bridge off the machine (ntfy, Pushover…), to be chosen;
-  see work package 04.
+  headless server, and wants to be alerted by a native notification. Grafana alerts go
+  to an **ntfy** topic on `ntfy.sh` (`NTFY_URL` in `.env`, ADR-017), the same setup as
+  `~/RamTracker`.
 
 ## Deployment
 

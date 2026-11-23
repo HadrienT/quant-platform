@@ -24,7 +24,7 @@ cluster_id() {
 }
 
 # Value for a variable that is empty in the placeholder; empty when it is meant
-# to stay empty (optional settings such as ALERT_WEBHOOK_URL).
+# to stay empty (optional settings such as NTFY_URL).
 generated_value() {
   case "$1" in
     KAFKA_CLUSTER_ID) cluster_id ;;

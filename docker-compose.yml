@@ -480,9 +480,10 @@ services:
       GOMEMLIMIT: 200MiB
       # Read by the datasource provisioning file (never written in git).
       AUDIT_DB_READER_PASSWORD: ${AUDIT_DB_READER_PASSWORD:?}
-      # Where alert notifications go (contact point `quant-platform` in alerts/). Empty
-      # until a channel is chosen: alerts then fire in Grafana but notify nobody.
-      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-http://alert-channel-not-configured.invalid/}
+      # Where alert notifications go (contact point `quant-platform` in alerts/): the
+      # ntfy topic in NTFY_URL, rendered by ntfy's built-in `grafana` template (ADR-017).
+      # NTFY_URL empty (the dev default): alerts fire in Grafana but notify nobody.
+      ALERT_WEBHOOK_URL: ${NTFY_URL:-http://alert-channel-not-configured.invalid/}?template=grafana&priority=4&tags=rotating_light
     ports:
       - "127.0.0.1:${QP_GRAFANA_PORT:-3100}:3000"
     volumes:

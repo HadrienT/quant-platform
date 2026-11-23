@@ -285,6 +285,7 @@ voir 2.
    construit ; le choisir ne demandera qu'un service Compose et une URL dans `.env`.
    La livraison du webhook est néanmoins **prouvée** par `scripts/alert_e2e.sh` avec un
    récepteur local jetable.
+   **Update: the channel is chosen in ADR-017 (ntfy through `ntfy.sh`).**
 6. **Recréation des services quand une configuration change** (`scripts/config_hash.sh`).
    Découvert par le test d'alerte : `docker compose up -d` ne recrée pas un conteneur dont
    seul un fichier *monté* a changé, donc Prometheus continuait sans scruter `data-quality`.
@@ -402,3 +403,59 @@ en le branchant sont tranchés ici.
 
 **Écarté.** *Compter les valorisations sans données comme `clean`* : c'est le biais
 corrigé ; *renommer le service compose de l'API* : voir 2.
+
+---
+
+## ADR-017 — Notification channel: ntfy, through the public ntfy.sh server
+
+Closes ADR-013 §5 (the channel had been left to the maintainer's choice).
+
+**Context.** Alerts fire in Grafana but reached nobody. The maintainer works from a
+Windows client over Remote-SSH to a headless server and wants a native push, which
+needs a relay off the machine. They already run ntfy for `RamTracker`: a long,
+unguessable topic on the public `ntfy.sh` server, followed in the ntfy app.
+
+**Decision.**
+
+1. **Same setup as `RamTracker`: `ntfy.sh` with a secret topic**, in its own topic
+   (`qp-alerts-<32 hex>`) so platform alerts can be muted or prioritised separately.
+   `.env` holds the full topic URL in `NTFY_URL`; the topic name is the only secret.
+2. **No relay code.** The Grafana contact point stays a plain webhook. Compose appends
+   `?template=grafana&priority=4&tags=rotating_light` to `NTFY_URL`: ntfy's built-in
+   `grafana` template (ntfy ≥ 2.14) reads Grafana's webhook JSON, titles the push
+   `🚨 [FIRING:n] …` or `✅ [RESOLVED] …` and uses Grafana's `message` as body.
+   The contact point sets that message to the alerts' `summary` and `description`
+   only; Grafana's default lists every label, value and `localhost` link.
+3. **One priority (4, "high") for firing and resolved.** The URL cannot vary with the
+   alert status. Acceptable: there are 8 rules, grouped by name, reminded every 4 h.
+4. **`NTFY_URL` is empty by default**, so the development stack notifies nobody;
+   production sets it. The `alert-channel-not-configured.invalid` fallback is kept.
+5. **Tests.** `scripts/alert_e2e.sh` still proves rule → firing → resolved with a local
+   receiver standing in for ntfy. `scripts/ntfy_e2e.sh` proves the real leg: Grafana's
+   provisioned contact point → ntfy → rendered push, read back from the topic (on a
+   throw-away topic in development, on the real one to see it arrive).
+
+**What leaves the server, and why it is acceptable.** This is the only exception to
+"self-hosted, no cloud", and it is a deliberate one. A push needs a third party anyway
+(Apple and Google push services sit behind every phone notification). What `ntfy.sh`
+receives is the alert title and the two annotations: counts and thresholds, built only
+from closed label sets (principle 8). No ticker, user, IP or `request_id` can appear.
+Messages are kept 12 h by `ntfy.sh`. Anyone who learns the topic name can read those
+alerts and post fake ones; rotating it means a new value in `.env` and resubscribing.
+
+**Rejected.**
+
+- *Self-hosted ntfy container.* The phone and the Windows client are off the machine,
+  so the server would have to be published through the Cloudflare tunnel, behind
+  Cloudflare Access (mandatory for anything exposed here) with an exception for the
+  ntfy apps, which cannot go through its browser login. iOS push would still go
+  through `ntfy.sh` as upstream. It also adds a service that goes down with the platform it reports on.
+  Moving to it later only changes `NTFY_URL`.
+- *Pushover*: paid, an account and an API token for the same result.
+- *E-mail*: an SMTP relay and credentials to run, and not a native push.
+- *A small relay service formatting the JSON*: the `grafana` template does it.
+
+**Learning note.** ntfy is publish/subscribe over HTTP: a `POST` to a topic URL
+publishes, and subscribers hold a connection (or rely on Firebase/APNs on phones).
+Like a Kafka topic, it has no consumer registry and no access control beyond the
+name, which is why the name has to be long and random.
