@@ -155,6 +155,31 @@ append-only) : `scripts/crash_test.sh`, `scripts/test_privileges.sh`, `scripts/a
 - Depuis l'hôte, un client Kafka se connecte sur `127.0.0.1:9094` (listener
   `EXTERNAL`) ; depuis un conteneur du réseau `dataplatform`, sur `kafka:9092`.
 
+### audit-sink stuck (alerts "Audit sink lag" / "Audit sink stalled")
+
+Incident of 2026-10-20 (issue #9): the broker stalled for a few minutes, dropped every
+consumer group member, and the two librdkafka consumers never rejoined. Nothing reached
+the audit database for a month.
+
+Since then, a consumer that holds **no partition for 120 s** exits with code 3 and
+Docker restarts it (`qp_common/watchdog.py`); its healthcheck is `unhealthy` while it
+holds none. If the alert still fires:
+
+| Check | Command |
+|---|---|
+| Is the group alive, and what is its lag? | `docker exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group audit-sink` |
+| What did the sink last do? | `docker logs --tail 20 audit-sink` (look for `partitions revoked`, `consumer stuck`, `transient db failure`) |
+| Restart it by hand | `docker restart audit-sink` — always safe: offsets are committed after the database, so it re-reads at worst one batch, and the insert is idempotent (`event_id`) |
+
+- `Group audit-sink not found` = the group has been empty for longer than the offset
+  retention (7 days): its committed offsets are gone. With `auto.offset.reset: earliest`
+  the sink re-reads everything still on the topics; duplicates are absorbed.
+- **The clock is the topic retention** (`topics/topics.yml`): `qm.http.access.v1`
+  keeps 14 days, `qm.assistant.chat.v1` 30 days, the audit topics 90 days. Beyond that,
+  unread events are lost. Compare `kafka-get-offsets.sh --time -2` (oldest kept) with
+  `max(src_offset)` per partition in `audit.events` to measure a gap.
+- The same applies to `data-quality` (group `data-quality`, `DQ_MAX_UNASSIGNED_S`).
+
 ## 7. Télémétrie et Grafana (lot 03)
 
 Deux chemins parallèles (ADR-004) : les événements d'audit vont dans Kafka, la

@@ -233,12 +233,11 @@ services:
         condition: service_completed_successfully
     networks:
       - default
+    # Healthy only while the consumer holds partitions (issue #9: a stuck consumer
+    # used to stay "healthy" because /metrics still answered). The process itself
+    # exits after SINK/DQ_MAX_UNASSIGNED_S without partitions; this makes it visible.
     healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - import urllib.request; urllib.request.urlopen("http://127.0.0.1:9108/metrics", timeout=3)
+      test: [CMD, python, -m, qp_common.health, "9108"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -324,12 +323,11 @@ services:
         condition: service_completed_successfully
     networks:
       - default
+    # Healthy only while the consumer holds partitions (issue #9: a stuck consumer
+    # used to stay "healthy" because /metrics still answered). The process itself
+    # exits after SINK/DQ_MAX_UNASSIGNED_S without partitions; this makes it visible.
     healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - import urllib.request; urllib.request.urlopen("http://127.0.0.1:9109/metrics", timeout=3)
+      test: [CMD, python, -m, qp_common.health, "9109"]
       interval: 15s
       timeout: 5s
       retries: 5

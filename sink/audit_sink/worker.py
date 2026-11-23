@@ -26,6 +26,7 @@ from qp_common.errors import Shutdown, TransientError
 from qp_common.lifecycle import GracefulStop
 from qp_common.logs import fields
 from qp_common.retry import retry_transient
+from qp_common.watchdog import AssignmentWatchdog
 from qp_common.wire import Decoder
 
 from .config import Config
@@ -56,6 +57,7 @@ class Worker:
         stop: GracefulStop,
         sleep: Callable[[float], None] = time.sleep,
         decoder: Decoder | None = None,
+        watchdog: AssignmentWatchdog | None = None,
     ) -> None:
         self._cfg = cfg
         self._consumer = consumer
@@ -64,6 +66,7 @@ class Worker:
         self._stop = stop
         self._sleep = sleep
         self._decoder = decoder or Decoder(None)  # JSON only unless a registry is given
+        self._watchdog = watchdog or AssignmentWatchdog(cfg.max_unassigned_s)
         # Offsets processed but whose Kafka commit failed; retried on the next
         # commit and before partitions are handed back on a rebalance.
         self._uncommitted: dict[tuple[str, int], int] = {}
@@ -82,6 +85,9 @@ class Worker:
                     num_messages=self._cfg.batch_size,
                     timeout=self._cfg.batch_timeout_s,
                 )
+                # Raises ConsumerStuck (deliberately not caught here) when the
+                # consumer has held no partition for too long: see qp_common.watchdog.
+                self._watchdog.check(len(self._consumer.assignment()))
                 if msgs:
                     self.process_batch(msgs)
         except Shutdown:
