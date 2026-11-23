@@ -8,6 +8,9 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib_prod.sh
+source scripts/lib_prod.sh
+require_prod_worktree
 
 if [[ ! -f .env ]]; then
   echo "✗ .env is missing. Run scripts/init_env.sh (see docs/RUNBOOK.md §2)." >&2

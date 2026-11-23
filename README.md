@@ -62,8 +62,8 @@ flowchart LR
 
 ```bash
 scripts/bootstrap.sh && scripts/init_env.sh   # tooling and a .env with random secrets
-scripts/up.sh                                 # the whole platform
-scripts/smoke.sh                              # produce → Kafka → sink → Postgres
+scripts/deploy.sh                             # the whole platform (from the production worktree)
+QP_PROD_TESTS=1 scripts/smoke.sh              # produce → Kafka → sink → Postgres
 ```
 
 ## Documentation

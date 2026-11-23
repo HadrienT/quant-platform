@@ -10,6 +10,9 @@
 #   scripts/dq_crash_test.sh [N]        default N=1000
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib_prod.sh
+source scripts/lib_prod.sh
+require_prod_ack "kills data-quality mid-stream and produces test events"
 # shellcheck source=scripts/lib_test.sh
 source scripts/lib_test.sh
 

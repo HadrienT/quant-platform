@@ -1,4 +1,4 @@
-"""Schema registry acceptance test (blueprint WP 05), against a RUNNING dev stack.
+"""Schema registry acceptance test (blueprint WP 05), against the RUNNING production stack (ADR-018).
 
     .venv/bin/python scripts/registry_test.py
 
@@ -31,6 +31,7 @@ from confluent_kafka.serialization import MessageField, SerializationContext
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 from gen_events import uuid7  # noqa: E402
+from prod_guard import require_prod_ack  # noqa: E402
 
 SUBJECT = "qm.test.registry-value"
 TOPIC = "qm.audit.valuation.v1"
@@ -112,6 +113,10 @@ def event(tag: str, payload: dict) -> dict:
 
 
 def main() -> int:
+    require_prod_ack(
+        "registry_test.py",
+        "registers test schemas in the registry and writes test events into the audit trail",
+    )
     tag = f"registry-{uuid.uuid4().hex[:6]}"
     base = f"http://127.0.0.1:{env('QP_REGISTRY_PORT', '8082')}/apis/ccompat/v7"
     client = SchemaRegistryClient({"url": base})

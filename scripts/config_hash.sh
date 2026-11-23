@@ -9,7 +9,7 @@
 # recreated — and an unchanged config recreates nothing. (The one-shot jobs
 # topics-init and audit-migrate need no hash: compose re-runs them on every `up`.)
 #
-# deploy.sh runs this; in development run it (or scripts/up.sh) after editing a config.
+# deploy.sh runs this (there is no development stack: ADR-018).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

@@ -1,4 +1,4 @@
-"""Health gate for `docker compose up -d` (used by deploy.sh and up.sh).
+"""Health gate for `docker compose up -d` (used by deploy.sh).
 
     python3 scripts/wait_healthy.py [TIMEOUT_S]      default 300
 

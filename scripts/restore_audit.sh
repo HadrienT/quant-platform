@@ -7,6 +7,9 @@
 #   scripts/restore_audit.sh DUMP_FILE [TARGET_DB]
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib_prod.sh
+source scripts/lib_prod.sh
+require_prod_worktree
 
 dump="${1:?usage: restore_audit.sh DUMP_FILE [TARGET_DB]}"
 target="${2:-qm_audit_restore}"
