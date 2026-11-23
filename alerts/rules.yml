@@ -188,6 +188,51 @@ groups:
         labels:
           severity: warning
 
+      # Why this threshold: qp-sink-lag needs 1000 unread messages, which the valuation topic alone takes MONTHS to
+      # reach (~700 events in October): a sink stuck on low-volume topics would never cross it (issue #9). This
+      # rule does not depend on volume: at least one message waiting AND no batch committed for 10 minutes. With a
+      # few events a second the sink commits every second or so, so 10 min of silence with work waiting is never
+      # normal. `for: 5m` lets a restart drain its backlog first. No data = OK: the expression is empty whenever
+      # the lag is 0 (the normal case); a vanished group (no lag series at all) is qp-sink-lag's no-data case.
+      - uid: qp-sink-stalled
+        title: Audit sink stalled
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: '(max(kafka_consumergroup_lag{consumergroup="audit-sink"}) > 0) and on() ((time() - max(qp_sink_last_success_timestamp_seconds)) > 600)'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+              settings: {mode: replaceNN, replaceWithValue: 0}
+              datasource: {type: __expr__, uid: __expr__}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{evaluator: {type: gt, params: [0]}}]
+              datasource: {type: __expr__, uid: __expr__}
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: 'audit-sink has stopped committing'
+          description: 'Messages are waiting (max lag {{ $values.B }} on one partition) and no batch was committed for 10 minutes. See docs/RUNBOOK.md, "audit-sink stuck".'
+        labels:
+          severity: warning
+
       # Why this threshold: qm_audit_dropped_total counts events the API had to abandon (queue full,
       # unserialisable): a lost audit event must be visible. Threshold zero; 15 minute window because drops are rare
       # and the alert should stay up long enough to be noticed. REQUIRES the API to export the counter at 0 from

@@ -22,6 +22,9 @@ class Config:
     # Test hook (crash test, exercise 3): sleep AFTER the database commit and BEFORE
     # the offset commit — the exact window where a crash forces a re-read.
     debug_delay_s: float = 0.0
+    # Subscribed but without any partition for this long = stuck outside the group:
+    # exit and let Docker restart the process (issue #9, qp_common.watchdog).
+    max_unassigned_s: float = 120.0
     db: dict[str, str] = field(default_factory=dict)
 
     @classmethod
@@ -37,6 +40,9 @@ class Config:
             schema_registry_url=e.get("SCHEMA_REGISTRY_URL", ""),
             log_level=e.get("LOG_LEVEL", cls.log_level),
             debug_delay_s=int(e.get("SINK_DEBUG_DELAY_MS", "0")) / 1000,
+            max_unassigned_s=float(
+                e.get("SINK_MAX_UNASSIGNED_S", cls.max_unassigned_s)
+            ),
             db={
                 "host": e.get("PGHOST", "qm-audit"),
                 "port": e.get("PGPORT", "5432"),

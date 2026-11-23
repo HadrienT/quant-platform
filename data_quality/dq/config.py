@@ -19,6 +19,9 @@ class Config:
     # and log every processed event_id so "no loss" can be counted from the logs.
     debug_delay_s: float = 0.0
     log_events: bool = False
+    # Subscribed but without any partition for this long = stuck outside the group:
+    # exit and let Docker restart the process (issue #9, qp_common.watchdog).
+    max_unassigned_s: float = 120.0
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> "Config":
@@ -37,4 +40,5 @@ class Config:
             log_level=e.get("LOG_LEVEL", cls.log_level),
             debug_delay_s=int(e.get("DQ_DEBUG_DELAY_MS", "0")) / 1000,
             log_events=e.get("DQ_LOG_EVENTS", "0") == "1",
+            max_unassigned_s=float(e.get("DQ_MAX_UNASSIGNED_S", cls.max_unassigned_s)),
         )

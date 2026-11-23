@@ -141,3 +141,54 @@ def test_config_reads_the_environment():
     )
     assert (cfg.batch_size, cfg.batch_timeout_s, cfg.debug_delay_s) == (20, 0.25, 0.1)
     assert cfg.db["user"] == "audit_writer" and cfg.db["password"] == "s"
+
+
+class _GroupLostConsumer:
+    """Holds partitions for a few polls, then loses them for good (issue #9)."""
+
+    def __init__(self, clock, polls_with_partitions):
+        self.clock = clock
+        self.polls_left = polls_with_partitions
+
+    def subscribe(self, topics, on_assign, on_revoke):
+        pass
+
+    def consume(self, num_messages, timeout):
+        self.clock.now += timeout
+        self.polls_left -= 1
+        return []
+
+    def assignment(self):
+        return ["p"] * 11 if self.polls_left > 0 else []
+
+
+def test_run_exits_when_the_consumer_never_gets_its_partitions_back(parts):
+    _, _, producer, store, stop, _ = parts
+    from audit_sink.worker import Worker
+    from qp_common.watchdog import AssignmentWatchdog, ConsumerStuck
+
+    class Clock:
+        now = 0.0
+
+        def __call__(self):
+            return self.now
+
+    clock = Clock()
+    consumer = _GroupLostConsumer(clock, polls_with_partitions=50)
+    worker = Worker(
+        Config(batch_timeout_s=1.0),
+        consumer,
+        producer,
+        store,
+        stop,
+        watchdog=AssignmentWatchdog(120, clock),
+    )
+    with pytest.raises(ConsumerStuck):
+        worker.run()
+    # 50 polls with partitions, then the bound (120 s at 1 s per poll) plus one
+    assert 170 <= clock.now <= 172
+
+
+def test_max_unassigned_is_configurable():
+    assert Config.from_env({}).max_unassigned_s == 120
+    assert Config.from_env({"SINK_MAX_UNASSIGNED_S": "30"}).max_unassigned_s == 30

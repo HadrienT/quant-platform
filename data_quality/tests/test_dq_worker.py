@@ -87,3 +87,32 @@ def test_config_reads_the_environment():
     assert cfg.topics == ("a", "b")
     assert (cfg.batch_size, cfg.debug_delay_s, cfg.log_events) == (10, 0.1, True)
     assert Config().group_id == "data-quality"  # distinct from the audit sink's group
+
+
+def test_run_exits_when_the_consumer_never_gets_its_partitions_back():
+    """Same incident as the sink (issue #9): data-quality was stuck too."""
+    from qp_common.watchdog import AssignmentWatchdog, ConsumerStuck
+
+    clock = Clock(0.0)
+
+    class GroupLost(FakeConsumer):
+        def subscribe(self, topics, on_assign, on_revoke):
+            pass
+
+        def consume(self, num_messages, timeout):
+            clock.now += timeout
+            return []
+
+        def assignment(self):
+            return []
+
+    worker = Worker(
+        Config(),
+        GroupLost(),
+        Aggregator(900, Clock()),
+        GracefulStop(),
+        watchdog=AssignmentWatchdog(120, clock),
+    )
+    with pytest.raises(ConsumerStuck):
+        worker.run()
+    assert Config.from_env({"DQ_MAX_UNASSIGNED_S": "30"}).max_unassigned_s == 30
