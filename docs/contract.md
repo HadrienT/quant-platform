@@ -51,6 +51,9 @@ façon idempotente par `scripts/`.
 |---|---|---|---|---|
 | `qm.audit.valuation.v1` | `username` (ou `anon:<hash ip>`) | 3 | 90 j | une valorisation complète |
 | `qm.audit.auth.v1` | `username` (ou `anon:<hash ip>`) | 3 | 90 j | `login_ok`, `login_failed`, `register`, `rate_limited`, `token_invalid` |
+| `qm.audit.xva.v1` | `username` (or `anon:<ip hash>`) | 3 | 90 d | `xva.valuation`: one xVA run, enough to replay it (ADR-019) |
+| `qm.audit.backtest.v1` | `username` (or `anon:<ip hash>`) | 3 | 90 d | `backtest.run`: one backtest run (ADR-019) |
+| `qm.audit.admin.v1` | `username` | 1 | 90 d | `admin.site_pages`: an admin action on the site pages (ADR-019) |
 | `qm.dataquality.fallback.v1` | `kind` | 1 | 90 j | un repli ou une donnée périmée / proxifiée |
 | `qm.http.access.v1` | `route` | 3 | 14 j | une requête HTTP (volumineux, faible valeur d'audit) |
 | `qm.assistant.chat.v1` | `username` | 1 | 30 j | latence, script valide ou non ; **pas le contenu** par défaut |

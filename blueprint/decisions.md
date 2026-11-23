@@ -513,3 +513,51 @@ production `.env`. *Documentation only*: that is what failed on 2026-11-23.
 the same project name are therefore the same deployment, whatever their files say:
 `docker inspect <c> --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}'`
 shows which checkout last created a container.
+
+---
+
+## ADR-019 — Topics for `xva.valuation`, `backtest.run` and `admin.site_pages`
+
+Closes issue #11 (counterpart of HadrienT/quant-modeling#344, producer PR
+HadrienT/quant-modeling#353).
+
+**Context.** The `quant-modeling` API emits three event types that had no topic in the
+contract. Its router raises `UnroutableEvent` for them, so they sit in its local spool
+(62 lines on 2026-11-20, back to 2026-11-18): an xVA cannot be replayed from the audit trail,
+and the backtest runs (quant-modeling WP 24) leave no record on the platform.
+
+**Decision.** Three new topics, declared in `topics/topics.yml` and `docs/contract.md` §2:
+
+| Topic | Type | Key | Partitions | Retention |
+|---|---|---|---|---|
+| `qm.audit.xva.v1` | `xva.valuation` | `username` (or `anon:<ip hash>`) | 3 | 90 d |
+| `qm.audit.backtest.v1` | `backtest.run` | `username` (or `anon:<ip hash>`) | 3 | 90 d |
+| `qm.audit.admin.v1` | `admin.site_pages` | `username` | 1 | 90 d |
+
+1. **One topic per subject, like `qm.audit.valuation.v1`**: one schema and one retention
+   per topic, so one registry subject (`<topic>-value`) once the producer moves to Avro.
+   Payloads stay JSON for now and belong to the producer (contract §5).
+2. **Key `username`**: the order that matters for audit is one user's sequence of actions,
+   and Kafka orders only within a partition. 3 partitions on the two user-facing topics,
+   for the same learning reason as the others; **1 on `admin`**: rare events, all from
+   admins, where a total order is worth more than spreading.
+3. **No sink change.** `audit-sink` subscribes to
+   `^(qm\.(audit|dataquality|assistant)\..+|qm\.http\.access\.v1)$` and picks the topics up
+   at its next metadata refresh; it stores them in `audit.events` like the others, without
+   reading the payload. `data-quality` keeps its explicit list: none of the three is a
+   data-quality signal today.
+4. **Order of deployment.** Kafka does not auto-create topics
+   (`KAFKA_AUTO_CREATE_TOPICS_ENABLE=false`): this change is deployed first (`topics-init`
+   creates the topics on `deploy.sh`), then the producer PR. Until then nothing changes on
+   the producer side; once it is deployed, its spool republishes what is waiting, with the
+   original `occurred_at` (so the rows land in the right monthly partition).
+
+**Rejected.** *Putting them on `qm.audit.valuation.v1`*: one topic would carry several
+payload schemas, which breaks "one topic = one subject" in the registry and mixes
+retentions. *One generic `qm.audit.misc.v1`*: the same problem, plus no per-subject replay.
+
+**Learning note.** Adding a topic never touches the existing ones: no rebalance of their
+partitions, no change of offsets. A consumer subscribed by **regex** (the sink) discovers
+the new topics at its next metadata refresh (`topic.metadata.refresh.interval.ms`, set to
+30 s in `sink/audit_sink/__main__.py`) and triggers one rebalance of its group; a consumer with an **explicit list**
+(`data-quality`) never sees them, which is why the regex was chosen for the archive.
