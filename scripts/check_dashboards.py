@@ -12,6 +12,8 @@ import pathlib
 import sys
 import urllib.request
 
+from prod_guard import require_prod_worktree
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
@@ -23,6 +25,7 @@ def env(name: str) -> str:
 
 
 def main() -> int:
+    require_prod_worktree("check_dashboards.py")
     port = (
         env("QP_GRAFANA_PORT")
         if "QP_GRAFANA_PORT=" in (ROOT / ".env").read_text()

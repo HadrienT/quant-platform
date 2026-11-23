@@ -2,8 +2,12 @@
 
 Deux parties :
 
-- **Partie A — exercices guidés** des lots 01 à 05, à faire **sur la plateforme de
-  développement** (`~/quant-platform`, pile lancée par `scripts/up.sh`). Ce sont des
+- **Partie A — exercices guidés** des lots 01 à 05. **Update (ADR-018): there is no
+  development stack.** The platform has a single Docker stack, the production one, driven
+  from `~/quant-platform-prod`. Read-only steps (queries, `kafka-get-offsets`, dashboards)
+  can be run there. Any step that edits a configuration, stops a service or wipes a volume
+  (`down -v`) must be done in the lab (part B, `scripts/lab_up.sh`) or skipped, never on
+  production. Ce sont des
   consignes : les commandes sont prêtes à copier, les réponses attendues sont indiquées,
   et **c'est à toi de les faire** (ils n'ont pas été rejoués à ta place).
 - **Partie B — exercices d'opérateur** du lot 06, faits dans un **laboratoire jetable**,
@@ -59,8 +63,8 @@ problème (c'est ce que fait `data-quality` par rapport à `audit-sink`) ?
 ```bash
 docker compose restart kafka           # les messages sont-ils toujours là ? (volume nommé)
 K kafka-get-offsets.sh --topic qm.audit.valuation.v1 --time -1
-# ⚠ seulement sur une pile jetable :
-docker compose down -v && scripts/up.sh   # que reste-t-il ? Qu'est-ce que ça dit de « Kafka n'est pas l'archive » ?
+# ⚠ never on production (ADR-018): lab only
+docker compose down -v && docker compose up -d   # que reste-t-il ? Qu'est-ce que ça dit de « Kafka n'est pas l'archive » ?
 ```
 
 ## Lot 02 — Base d'audit et puits
@@ -106,7 +110,7 @@ pour que le sink commit **avant** l'insertion, et quel serait le risque (perte a
 étiquette » existe.
 
 1. Dans `otel/collector.yml`, mettre en commentaire la suppression de `request_id` (processeur
-   `transform/forbidden_metric_labels`), puis `scripts/up.sh` (recrée seulement le Collector).
+   `transform/forbidden_metric_labels`), puis `scripts/deploy.sh` (recrée seulement le Collector). ⚠ Lab only (ADR-018).
 2. Envoyer 5 000 points avec un `request_id` distinct :
 
 ```bash
@@ -118,7 +122,7 @@ scripts/check_labels.sh                                                   # doit
 docker stats --no-stream prometheus                                        # la mémoire monte
 ```
 
-3. Remettre la suppression en place, `scripts/up.sh`. *Question :* combien de séries donnerait un
+3. Remettre la suppression en place, `scripts/deploy.sh`. *Question :* combien de séries donnerait un
    ticker (500 valeurs) × un utilisateur (50) × une route (20) ?
 
 **A3.2 — De la métrique à la trace, puis à la ligne d'audit.** Une requête lente : dans le

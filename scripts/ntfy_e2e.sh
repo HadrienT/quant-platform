@@ -13,6 +13,9 @@
 # this script covers the leg alert_e2e.sh replaces with a local receiver.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib_prod.sh
+source scripts/lib_prod.sh
+require_prod_ack "recreates Grafana and pushes a test notification to the real ntfy topic"
 # shellcheck source=scripts/lib_test.sh
 source scripts/lib_test.sh
 

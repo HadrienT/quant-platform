@@ -249,8 +249,8 @@ et l'instant du dernier événement par source (un producteur muet = cette valeu
 
 **Alertes** : `alerts/rules.yml` (8 règles, **chaque seuil justifié en commentaire**),
 `alerts/contact-points.yml`, `alerts/policies.yml`, chargées par Grafana au démarrage. Pour
-recalibrer un seuil : modifier le fichier, puis `scripts/up.sh` (dev) ou `scripts/deploy.sh`
-(prod) — jamais dans l'interface.
+recalibrer un seuil : modifier le fichier, then merge into `main` and run `scripts/deploy.sh`
+from `~/quant-platform-prod` — never in the interface.
 
 **Notification channel: ntfy (ADR-017).** Grafana posts each alert to an ntfy topic on
 `ntfy.sh`, which pushes it to every device subscribed to that topic (phone app, Windows
@@ -274,7 +274,7 @@ To rotate a leaked topic: new name, resubscribe, steps 3 and 4. To silence alert
 while, mute the topic in the app; to stop them, empty `NTFY_URL` and redeploy.
 
 **Changer une configuration** (`prometheus/`, `loki/`, `tempo/`, `otel/`, `grafana/`,
-`alerts/`, `akhq/`) : `deploy.sh` (ou `scripts/up.sh` en dev) hache ces fichiers et recrée
+`alerts/`, `akhq/`) : `deploy.sh` hache ces fichiers et recrée
 **uniquement** les services dont la configuration a changé. Un simple `docker compose up -d`
 ne le ferait pas : Docker ne voit pas qu'un fichier monté a changé.
 

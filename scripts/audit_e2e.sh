@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # End-to-end scenarios of the audit sink (blueprint WP 02 acceptance criteria),
-# against a RUNNING dev stack. The audit trail is append-only, so the test rows it
-# creates stay: use a disposable stack (`docker compose down -v` resets it).
+# against the RUNNING production stack (ADR-018). The audit trail is append-only, so the
+# test rows it creates stay there for good (tagged usernames, easy to filter out).
 #
 #   scripts/audit_e2e.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib_prod.sh
+source scripts/lib_prod.sh
+require_prod_ack "stops qm-audit and audit-sink and writes test events into the audit trail"
 # shellcheck source=scripts/lib_test.sh
 source scripts/lib_test.sh
 

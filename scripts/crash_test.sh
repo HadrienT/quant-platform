@@ -12,6 +12,9 @@
 #   scripts/crash_test.sh [N]        default N=1000
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib_prod.sh
+source scripts/lib_prod.sh
+require_prod_ack "kills audit-sink mid-stream and writes test events into the audit trail"
 # shellcheck source=scripts/lib_test.sh
 source scripts/lib_test.sh
 

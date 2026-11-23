@@ -4,7 +4,7 @@
 # archive all N; sample CPU of each component to see where the bottleneck is.
 #
 #   scripts/lab_replay.sh [N] [BATCH_SIZE…]      default N=1000000, batch sizes 50 500 5000
-# Needs: scripts/lab_up.sh replay   (and the audit-sink image built: scripts/up.sh once)
+# Needs: scripts/lab_up.sh replay   (and the audit-sink image built: scripts/deploy.sh once)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

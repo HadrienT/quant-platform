@@ -11,6 +11,9 @@
 #   scripts/alert_e2e.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib_prod.sh
+source scripts/lib_prod.sh
+require_prod_ack "recreates Grafana and writes a test fallback event into the audit trail"
 # shellcheck source=scripts/lib_test.sh
 source scripts/lib_test.sh
 
